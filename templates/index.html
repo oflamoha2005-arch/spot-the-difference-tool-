@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spot The Difference Book Studio | KDP Print-Ready 300 DPI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Top Navigation Bar -->
+    <header class="top-nav">
+      <div class="brand">
+        <div class="logo-icon">🔍</div>
+        <div>
+          <h1>Spot The Difference <span>Studio</span></h1>
+          <p class="tagline">KDP Activity Book Creator • 300 DPI Print-Ready Engine</p>
+        </div>
+      </div>
+
+      <div class="header-center">
+        <div class="counter-badge">
+          <span class="counter-label">Differences Created</span>
+          <span class="counter-val" id="diffCountBadge">0</span>
+          <span class="counter-target">/ 5 Recommended</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button id="btnLoadSample" class="btn btn-secondary" title="Load sample park image">
+          <span class="btn-icon">🌳</span> Sample Image
+        </button>
+        <label class="btn btn-primary file-upload-label" title="Upload your own generated image">
+          <span class="btn-icon">📁</span> Upload Image
+          <input type="file" id="fileUploadInput" accept="image/*" style="display:none;">
+        </label>
+        <button id="btnUndo" class="btn btn-warning-soft" title="حذف آخر تعديل فقط (Undo Last Modification)" disabled>
+          ↩️ تراجع عن آخر تعديل (Undo)
+        </button>
+        <button id="btnReset" class="btn btn-danger-soft" title="مسح جميع التعديلات والبدء من جديد (Reset All)">
+          🔄 مسح الكل (Reset)
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="workspace">
+      <!-- Left Panel: Tools & Operations -->
+      <aside class="sidebar-left">
+        <div class="panel-section">
+          <h2 class="section-title">1. Select Tool (اختر الأداة)</h2>
+          
+          <div class="tool-cards">
+            <!-- Tool: Color Swap -->
+            <button class="tool-card active" data-tool="color" id="toolColor">
+              <div class="tool-icon">🎨</div>
+              <div class="tool-info">
+                <h3>Smart Color Swap</h3>
+                <p>تبديل لون عنصر بدقة وبدون لمس الجوانب</p>
+              </div>
+            </button>
+
+            <!-- Tool: Smart Erase -->
+            <button class="tool-card" data-tool="erase" id="toolErase">
+              <div class="tool-icon">🧽</div>
+              <div class="tool-info">
+                <h3>Smart Eraser</h3>
+                <p>مسح عنصر وتعويضه بالخلفية تلقائياً</p>
+              </div>
+            </button>
+
+            <!-- Tool: Flip -->
+            <button class="tool-card" data-tool="flip" id="toolFlip">
+              <div class="tool-icon">🔄</div>
+              <div class="tool-info">
+                <h3>Flip Horizontal</h3>
+                <p>قلب اتجاه عنصر (مثلاً: عصفور أو سيارة)</p>
+              </div>
+            </button>
+
+            <!-- Tool: Clone / Duplicate -->
+            <button class="tool-card" data-tool="clone" id="toolClone">
+              <div class="tool-icon">📋</div>
+              <div class="tool-info">
+                <h3>Clone / Duplicate</h3>
+                <p>نسخ عنصر ولصقه فمكان آخر لزيادة الفرق</p>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Tool Configuration Sub-panel -->
+        <div class="panel-section config-section" id="toolConfigPanel">
+          <!-- Color Tool Options -->
+          <div class="tool-options" id="colorOptions">
+            <label class="option-label">New Color (اختر اللون الجديد):</label>
+            <div class="color-palette">
+              <button class="color-swatch active" data-color="green" style="--c: #10B981" title="Green">🍏 Green</button>
+              <button class="color-swatch" data-color="yellow" style="--c: #F59E0B" title="Yellow">🍌 Yellow</button>
+              <button class="color-swatch" data-color="blue" style="--c: #3B82F6" title="Blue">🫐 Blue</button>
+              <button class="color-swatch" data-color="purple" style="--c: #8B5CF6" title="Purple">🍇 Purple</button>
+              <button class="color-swatch" data-color="orange" style="--c: #F97316" title="Orange">🍊 Orange</button>
+              <button class="color-swatch" data-color="red" style="--c: #EF4444" title="Red">🍓 Red</button>
+            </div>
+
+            <div class="slider-group">
+              <div class="slider-header">
+                <span>Color Isolation Tolerance:</span>
+                <span id="toleranceVal">22</span>
+              </div>
+              <input type="range" id="toleranceSlider" min="10" max="45" value="22">
+              <p class="help-text">💡 دقة عزل اللون: كيحمي الجوانب والخلفية من التغيير.</p>
+            </div>
+            
+            <div class="tip-card">
+              👉 <strong>طريقة الاستعمال:</strong> كليكي مباشرة على العنصر (مثلاً تفاحة أو قميجة) باش تبدل لونو فثانية!
+            </div>
+          </div>
+
+          <!-- Eraser Tool Options -->
+          <div class="tool-options hidden" id="eraseOptions">
+            <div class="slider-group">
+              <div class="slider-header">
+                <span>Brush Size (حجم الممسحة):</span>
+                <span id="brushSizeVal">28px</span>
+              </div>
+              <input type="range" id="brushSizeSlider" min="10" max="60" value="28">
+            </div>
+            <div class="tip-card">
+              👉 <strong>طريقة الاستعمال:</strong> دوز الممسحة فوق العنصر اللي باغي تمسحو (مثلاً عصفور أو سحابة) وغايتمسح بالخلفية!
+            </div>
+            <button class="btn btn-secondary btn-full" id="btnApplyErase" style="margin-top: 10px;">
+              ✨ تطبيق المسح (Apply Erase)
+            </button>
+            <button class="btn btn-ghost btn-full" id="btnClearBrush" style="margin-top: 6px;">
+              تنظيف التحديد (Clear Selection)
+            </button>
+          </div>
+
+          <!-- Flip Tool Options -->
+          <div class="tool-options hidden" id="flipOptions">
+            <div class="tip-card">
+              👉 <strong>طريقة الاستعمال:</strong> جر مربع بالماوس حول العنصر باش تقلبه أفقياً.
+            </div>
+          </div>
+
+          <!-- Clone Tool Options -->
+          <div class="tool-options hidden" id="cloneOptions">
+            <div class="clone-step-box" id="cloneStep1">
+              <span class="step-num">خطوة 1:</span>
+              <p>جر مربع بالماوس حول العنصر اللي باغي تنسخه (مثلاً عصفور أو تفاحة).</p>
+            </div>
+            <div class="clone-step-box hidden" id="cloneStep2">
+              <span class="step-num step-success">خطوة 2:</span>
+              <p>✅ تم نسخ العنصر! كليكي دابا فـ البلاصة اللي باغي تلصقو فيها.</p>
+              <button class="btn btn-ghost btn-full" id="btnCancelClone" style="margin-top: 6px;">
+                🔄 إلغاء واختيار عنصر آخر
+              </button>
+            </div>
+            <div class="form-group" style="margin-top: 10px;">
+              <label class="option-label">طريقة الدمج (Blend Mode):</label>
+              <select id="cloneBlendMode" class="select-input">
+                <option value="seamless" selected>Seamless AI Blend (دمج الإضاءة تلقائياً)</option>
+                <option value="direct">Direct Feathered (لصق مباشر بحواف ناعمة)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Created Differences List -->
+        <div class="panel-section diff-list-section">
+          <div class="section-header-flex">
+            <h2 class="section-title">2. Differences Created (<span id="diffTotal">0</span>)</h2>
+          </div>
+          <div class="diff-list" id="diffList">
+            <div class="empty-diff-state">
+              <span>🎯</span>
+              <p>No differences yet. Click or brush on the image to create your first difference!</p>
+            </div>
+          </div>
+          <button id="btnUndoLastDiff" class="btn btn-warning-soft btn-full" style="margin-top: 8px;" disabled title="حذف آخر فرق قمت بإضافته فقط">
+            ↩️ حذف آخر تعديل (Remove Last Diff)
+          </button>
+        </div>
+      </aside>
+
+      <!-- Center Stage: Viewport & Canvas -->
+      <section class="stage">
+        <!-- Viewport Controls -->
+        <div class="stage-toolbar">
+          <div class="tab-group">
+            <button class="tab-btn active" data-view="editor">✏️ Editor Canvas</button>
+            <button class="tab-btn" data-view="split">👀 Side-by-Side View</button>
+            <button class="tab-btn" data-view="solution">🎯 Solution (Circled)</button>
+          </div>
+
+          <!-- Zoom & Pan Controls -->
+          <div class="zoom-controls">
+            <button class="zoom-btn" id="btnZoomOut" title="تصغير (Zoom Out)">➖</button>
+            <span class="zoom-level" id="zoomLevelDisplay">100%</span>
+            <button class="zoom-btn" id="btnZoomIn" title="تكبير (Zoom In)">➕</button>
+            <button class="zoom-btn" id="btnZoomReset" title="إعادة الحجم الأصلي (Fit)">Fit</button>
+            <button class="zoom-btn" id="btnPanToggle" title="تحريك الصورة (Pan / Drag)">✋ Pan</button>
+          </div>
+
+          <div class="zoom-tools">
+            <span class="status-indicator" id="statusIndicator">Ready</span>
+          </div>
+        </div>
+
+        <!-- Canvas Container -->
+        <div class="canvas-viewport" id="canvasViewport">
+          <!-- Editor View -->
+          <div class="view-panel active" id="editorView">
+            <div class="canvas-wrapper">
+              <img id="baseImage" src="/static/samples/sample_park.jpg" alt="Base Image">
+              <canvas id="interactiveCanvas"></canvas>
+            </div>
+          </div>
+
+          <!-- Split View (Original vs Modified) -->
+          <div class="view-panel" id="splitView">
+            <div class="split-container">
+              <div class="split-card">
+                <div class="split-header">
+                  <span class="badge badge-blue">PICTURE 1 (ORIGINAL)</span>
+                </div>
+                <div class="split-img-box">
+                  <img id="splitImgOriginal" src="/static/samples/sample_park.jpg" alt="Original">
+                </div>
+              </div>
+              <div class="split-card">
+                <div class="split-header">
+                  <span class="badge badge-red">PICTURE 2 (MODIFIED)</span>
+                </div>
+                <div class="split-img-box">
+                  <img id="splitImgModified" src="/outputs/current_modified.png" alt="Modified">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Solution View -->
+          <div class="view-panel" id="solutionView">
+            <div class="solution-container">
+              <div class="solution-card">
+                <div class="split-header">
+                  <span class="badge badge-red">SOLUTIONS KEY (CIRCLED)</span>
+                </div>
+                <div class="solution-img-box">
+                  <img id="solutionImg" src="/api/solution-image" alt="Solution Preview">
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Panel: Amazon KDP Export -->
+      <aside class="sidebar-right">
+        <div class="panel-section">
+          <h2 class="section-title">3. Amazon KDP Export</h2>
+          <p class="section-desc">صفحات احترافية بدقة 300 DPI جاهزة للرفع مباشرة على أمازون</p>
+
+          <div class="form-group">
+            <label>Book Trim Size (قياس الكتاب):</label>
+            <select id="kdpPageSize" class="select-input">
+              <option value="8.5x8.5" selected>8.5 x 8.5 in (Square - الأكثر مبيعاً للأطفال)</option>
+              <option value="8.5x11">8.5 x 11 in (Standard Portrait)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Page Title (عنوان اللغز):</label>
+            <input type="text" id="kdpTitle" class="text-input" value="SPOT THE 5 DIFFERENCES!">
+          </div>
+
+          <div class="form-group">
+            <label>Page Number (رقم الصفحة):</label>
+            <input type="number" id="kdpPageNum" class="text-input" value="1" min="1" max="200">
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="export-buttons">
+            <button id="btnExportPuzzlePng" class="btn btn-secondary btn-full">
+              🖼️ تحميل صفحة اللغز (PNG 300 DPI)
+            </button>
+            <button id="btnExportSolutionPng" class="btn btn-secondary btn-full">
+              🎯 تحميل صفحة الحل (PNG 300 DPI)
+            </button>
+            <button id="btnExportFullPdf" class="btn btn-success-gradient btn-full">
+              📕 تحميل الكتاب كامل (PDF 300 DPI)
+            </button>
+          </div>
+
+          <div class="kdp-spec-box">
+            <h4>KDP Compliance:</h4>
+            <ul>
+              <li>✅ 300 DPI High-Resolution</li>
+              <li>✅ Safe Print Margins Included</li>
+              <li>✅ Checklist circles for kids included</li>
+              <li>✅ Automatic Solution Key included</li>
+            </ul>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
