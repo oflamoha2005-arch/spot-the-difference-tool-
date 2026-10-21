@@ -33,6 +33,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const brushSizeVal = document.getElementById('brushSizeVal');
   const btnApplyErase = document.getElementById('btnApplyErase');
   const btnClearBrush = document.getElementById('btnClearBrush');
+  const btnEraseModeBrush = document.getElementById('btnEraseModeBrush');
+  const btnEraseModeBox = document.getElementById('btnEraseModeBox');
+  const eraseBrushControls = document.getElementById('eraseBrushControls');
+  const sizePresetBtns = document.querySelectorAll('.size-preset-btn');
+  const eraseAutoApplyToggle = document.getElementById('eraseAutoApplyToggle');
+  const eraseTipCard = document.getElementById('eraseTipCard');
+
+  const btnColorModeClick = document.getElementById('btnColorModeClick');
+  const btnColorModeBox = document.getElementById('btnColorModeBox');
+  const colorTipCard = document.getElementById('colorTipCard');
 
   // Top Nav Actions
   const btnLoadSample = document.getElementById('btnLoadSample');
@@ -64,9 +74,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // State
   let currentTool = 'color'; // 'color', 'erase', 'flip', 'clone'
-  let selectedColor = 'green';
-  let tolerance = 22;
-  let brushSize = 28;
+  let selectedColor = 'purple';
+  let tolerance = 14;
+  let colorMode = 'click'; // 'click' or 'box'
+  let clickIndicator = null;
+  let clickIndicatorTimer = null;
+  let brushSize = 35;
+  let eraseMode = 'brush'; // 'brush' or 'box'
+  let eraseAutoApply = true;
+  let brushCursorPos = null;
 
   let cloneState = 'select_source'; // 'select_source' | 'paste_target'
   let cloneSourceBox = null;
@@ -89,6 +105,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize Canvas Dimensions
   function syncCanvasSize() {
     if (!baseImage.complete || baseImage.naturalWidth === 0) return;
+    if (interactiveCanvas.width === baseImage.naturalWidth && interactiveCanvas.height === baseImage.naturalHeight) {
+      return; // Dimensions unchanged: avoid wiping canvas buffer
+    }
     interactiveCanvas.width = baseImage.naturalWidth;
     interactiveCanvas.height = baseImage.naturalHeight;
     maskCanvas.width = baseImage.naturalWidth;
@@ -111,9 +130,38 @@ document.addEventListener('DOMContentLoaded', () => {
   function redrawCanvas() {
     ctx.clearRect(0, 0, interactiveCanvas.width, interactiveCanvas.height);
 
-    if (currentTool === 'erase' && hasBrushStroke) {
-      // Draw mask overlay with vibrant semi-transparent orange
-      ctx.drawImage(maskCanvas, 0, 0);
+    if (currentTool === 'erase') {
+      if (eraseMode === 'brush') {
+        if (hasBrushStroke) {
+          ctx.drawImage(maskCanvas, 0, 0);
+        }
+        // Draw live circular brush cursor
+        if (brushCursorPos && !isPanMode && !isSpacePressed) {
+          ctx.beginPath();
+          ctx.arc(brushCursorPos.x, brushCursorPos.y, brushSize / 2, 0, Math.PI * 2);
+          ctx.strokeStyle = '#F43F5E';
+          ctx.lineWidth = Math.max(1.5, 2.5 / currentZoom);
+          ctx.setLineDash([4, 4]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      } else if (eraseMode === 'box' && currentBox) {
+        ctx.strokeStyle = '#F43F5E';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([6, 6]);
+        ctx.strokeRect(currentBox.x, currentBox.y, currentBox.w, currentBox.h);
+        ctx.fillStyle = 'rgba(244, 63, 94, 0.2)';
+        ctx.fillRect(currentBox.x, currentBox.y, currentBox.w, currentBox.h);
+        ctx.setLineDash([]);
+      }
+    } else if (currentTool === 'color' && colorMode === 'box' && currentBox) {
+      ctx.strokeStyle = '#8B5CF6';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([6, 6]);
+      ctx.strokeRect(currentBox.x, currentBox.y, currentBox.w, currentBox.h);
+      ctx.fillStyle = 'rgba(139, 92, 246, 0.2)';
+      ctx.fillRect(currentBox.x, currentBox.y, currentBox.w, currentBox.h);
+      ctx.setLineDash([]);
     } else if (currentTool === 'flip' && currentBox) {
       ctx.strokeStyle = '#06B6D4';
       ctx.lineWidth = 3;
@@ -155,6 +203,41 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
     }
+
+    // Draw animated click ripple indicator if active
+    if (clickIndicator) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(clickIndicator.x, clickIndicator.y, clickIndicator.radius, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(139, 92, 246, ${clickIndicator.opacity})`;
+      ctx.lineWidth = Math.max(2, 3 / currentZoom);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(clickIndicator.x, clickIndicator.y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(139, 92, 246, ${clickIndicator.opacity})`;
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // Visual Click Ripple Indicator
+  function showClickIndicator(x, y) {
+    clickIndicator = { x, y, radius: 10, opacity: 1.0 };
+    redrawCanvas();
+    if (clickIndicatorTimer) clearInterval(clickIndicatorTimer);
+    let step = 0;
+    clickIndicatorTimer = setInterval(() => {
+      step++;
+      if (clickIndicator) {
+        clickIndicator.radius += 3.0;
+        clickIndicator.opacity -= 0.12;
+        if (clickIndicator.opacity <= 0 || step >= 10) {
+          clearInterval(clickIndicatorTimer);
+          clickIndicator = null;
+        }
+        redrawCanvas();
+      }
+    }, 40);
   }
 
   // Coordinate Conversion: Screen to Original Image Pixels
@@ -201,23 +284,107 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Color Selection Mode Switching (Click vs Box)
+  if (btnColorModeClick && btnColorModeBox) {
+    btnColorModeClick.addEventListener('click', () => {
+      colorMode = 'click';
+      btnColorModeClick.classList.add('active');
+      btnColorModeBox.classList.remove('active');
+      if (colorTipCard) {
+        colorTipCard.innerHTML = '👉 <strong>طريقة الاستعمال:</strong> كليكي مباشرة على أي عنصر (مثلثة، تفاحة، عصفور، قميجة...) باش تبدل لونو بدقة بدون ما يقيس الخلفية!';
+      }
+      clearSelection();
+    });
+
+    btnColorModeBox.addEventListener('click', () => {
+      colorMode = 'box';
+      btnColorModeBox.classList.add('active');
+      btnColorModeClick.classList.remove('active');
+      if (colorTipCard) {
+        colorTipCard.innerHTML = '👉 <strong>طريقة الاستعمال:</strong> جر مربع بالماوس حول أي عنصر كامل (كلب، طيارة ورقية، دراجة...) باش تبدل لونو كامل فمرة واحدة بدون أي تأثير على باقي الصورة!';
+      }
+      clearSelection();
+    });
+  }
+
   // Tolerance Slider
   toleranceSlider.addEventListener('input', (e) => {
     tolerance = parseInt(e.target.value);
     toleranceVal.textContent = tolerance;
   });
 
-  // Brush Size Slider
-  brushSizeSlider.addEventListener('input', (e) => {
-    brushSize = parseInt(e.target.value);
-    brushSizeVal.textContent = `${brushSize}px`;
+  // Brush Sizing & Presets
+  function setBrushSize(size) {
+    brushSize = size;
+    if (brushSizeSlider) brushSizeSlider.value = size;
+    if (brushSizeVal) brushSizeVal.textContent = `${size}px`;
+    sizePresetBtns.forEach(b => {
+      b.classList.toggle('active', parseInt(b.dataset.size) === size);
+    });
+    redrawCanvas();
+  }
+
+  sizePresetBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const size = parseInt(btn.dataset.size);
+      setBrushSize(size);
+    });
   });
+
+  if (brushSizeSlider) {
+    brushSizeSlider.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value);
+      brushSize = val;
+      if (brushSizeVal) brushSizeVal.textContent = `${brushSize}px`;
+      sizePresetBtns.forEach(b => {
+        b.classList.toggle('active', parseInt(b.dataset.size) === val);
+      });
+      redrawCanvas();
+    });
+  }
+
+  // Eraser Sub-Mode Switching (Brush vs Box)
+  if (btnEraseModeBrush && btnEraseModeBox) {
+    btnEraseModeBrush.addEventListener('click', () => {
+      eraseMode = 'brush';
+      btnEraseModeBrush.classList.add('active');
+      btnEraseModeBox.classList.remove('active');
+      if (eraseBrushControls) eraseBrushControls.style.display = 'block';
+      if (eraseTipCard) {
+        eraseTipCard.innerHTML = '👉 <strong>طريقة الاستعمال:</strong> دوز الممسحة فوق العنصر (عصفور، سحابة، تفاحة...) وغايتمسح بالخلفية بدون أي أثر أو تشويه!';
+      }
+      clearSelection();
+    });
+
+    btnEraseModeBox.addEventListener('click', () => {
+      eraseMode = 'box';
+      btnEraseModeBox.classList.add('active');
+      btnEraseModeBrush.classList.remove('active');
+      if (eraseBrushControls) eraseBrushControls.style.display = 'none';
+      if (eraseTipCard) {
+        eraseTipCard.innerHTML = '👉 <strong>طريقة الاستعمال:</strong> جر مربع بالماوس حول أي عنصر باغي تمسحه وغايتمسح فوراً بالخلفية بدون تشويه!';
+      }
+      clearSelection();
+    });
+  }
+
+  // Auto-Apply Toggle
+  if (eraseAutoApplyToggle) {
+    eraseAutoApply = eraseAutoApplyToggle.checked;
+    eraseAutoApplyToggle.addEventListener('change', (e) => {
+      eraseAutoApply = e.target.checked;
+      btnApplyErase.style.display = eraseAutoApply ? 'none' : 'block';
+    });
+    btnApplyErase.style.display = eraseAutoApply ? 'none' : 'block';
+  }
 
   // Clear Brush/Selection
   function clearSelection() {
+    isInteracting = false;
     maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
     hasBrushStroke = false;
     currentBox = null;
+    brushCursorPos = null;
     redrawCanvas();
   }
 
@@ -244,27 +411,51 @@ document.addEventListener('DOMContentLoaded', () => {
   interactiveCanvas.addEventListener('mousedown', (e) => {
     if (isPanMode || isSpacePressed || e.button === 1) return; // Ignore when panning
 
-    isInteracting = true;
     const pt = getImgCoords(e);
     startX = pt.x;
     startY = pt.y;
 
-    if (currentTool === 'erase') {
-      hasBrushStroke = true;
-      maskCtx.fillStyle = 'rgba(244, 63, 94, 0.65)';
-      maskCtx.strokeStyle = 'rgba(244, 63, 94, 0.65)';
-      maskCtx.lineWidth = brushSize;
-      maskCtx.lineCap = 'round';
-      maskCtx.lineJoin = 'round';
-      maskCtx.beginPath();
-      maskCtx.arc(pt.x, pt.y, brushSize / 2, 0, Math.PI * 2);
-      maskCtx.fill();
+    if (currentTool === 'clone' && cloneState === 'paste_target') {
+      // In paste mode, mousedown is a single click to paste, NOT dragging a box
+      isInteracting = false;
+      return;
+    }
+
+    isInteracting = true;
+
+    if (currentTool === 'color') {
+      if (colorMode === 'box') {
+        currentBox = { x: pt.x, y: pt.y, w: 0, h: 0 };
+        redrawCanvas();
+      }
+    } else if (currentTool === 'erase') {
+      if (eraseMode === 'brush') {
+        hasBrushStroke = true;
+        maskCtx.fillStyle = 'rgba(244, 63, 94, 0.65)';
+        maskCtx.strokeStyle = 'rgba(244, 63, 94, 0.65)';
+        maskCtx.lineWidth = brushSize;
+        maskCtx.lineCap = 'round';
+        maskCtx.lineJoin = 'round';
+        maskCtx.beginPath();
+        maskCtx.arc(pt.x, pt.y, brushSize / 2, 0, Math.PI * 2);
+        maskCtx.fill();
+        redrawCanvas();
+      } else {
+        currentBox = { x: pt.x, y: pt.y, w: 0, h: 0 };
+        redrawCanvas();
+      }
+    } else if (currentTool === 'flip' || (currentTool === 'clone' && cloneState === 'select_source')) {
+      currentBox = { x: pt.x, y: pt.y, w: 0, h: 0 };
       redrawCanvas();
     }
   });
 
   interactiveCanvas.addEventListener('mousemove', (e) => {
     const pt = getImgCoords(e);
+
+    if (currentTool === 'erase' && eraseMode === 'brush') {
+      brushCursorPos = pt;
+    }
 
     if (currentTool === 'clone' && cloneState === 'paste_target') {
       clonePreviewPos = pt;
@@ -274,14 +465,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (isInteracting && !isPanMode && !isSpacePressed) {
       if (currentTool === 'erase') {
-        maskCtx.beginPath();
-        maskCtx.moveTo(startX, startY);
-        maskCtx.lineTo(pt.x, pt.y);
-        maskCtx.stroke();
-        startX = pt.x;
-        startY = pt.y;
-        redrawCanvas();
-      } else if (currentTool === 'flip' || (currentTool === 'clone' && cloneState === 'select_source')) {
+        if (eraseMode === 'brush') {
+          maskCtx.fillStyle = 'rgba(244, 63, 94, 0.65)';
+          maskCtx.strokeStyle = 'rgba(244, 63, 94, 0.65)';
+          maskCtx.lineWidth = brushSize;
+          maskCtx.lineCap = 'round';
+          maskCtx.lineJoin = 'round';
+          maskCtx.beginPath();
+          maskCtx.moveTo(startX, startY);
+          maskCtx.lineTo(pt.x, pt.y);
+          maskCtx.stroke();
+          startX = pt.x;
+          startY = pt.y;
+          redrawCanvas();
+        } else {
+          currentBox = {
+            x: Math.min(startX, pt.x),
+            y: Math.min(startY, pt.y),
+            w: Math.abs(pt.x - startX),
+            h: Math.abs(pt.y - startY)
+          };
+          redrawCanvas();
+        }
+      } else if (
+        (currentTool === 'color' && colorMode === 'box') ||
+        currentTool === 'flip' ||
+        (currentTool === 'clone' && cloneState === 'select_source')
+      ) {
         currentBox = {
           x: Math.min(startX, pt.x),
           y: Math.min(startY, pt.y),
@@ -290,7 +500,16 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         redrawCanvas();
       }
+    } else {
+      if (currentTool === 'erase' && eraseMode === 'brush') {
+        redrawCanvas();
+      }
     }
+  });
+
+  interactiveCanvas.addEventListener('mouseleave', () => {
+    brushCursorPos = null;
+    redrawCanvas();
   });
 
   interactiveCanvas.addEventListener('mouseup', async (e) => {
@@ -298,8 +517,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const pt = getImgCoords(e);
 
     if (currentTool === 'clone' && cloneState === 'paste_target') {
-      if (cloneSourceBox) {
-        await applyClone(cloneSourceBox, pt.x, pt.y);
+      isInteracting = false;
+      currentBox = null;
+      const srcBox = cloneSourceBox;
+      if (srcBox) {
+        await applyClone(srcBox, pt.x, pt.y);
       }
       return;
     }
@@ -308,8 +530,23 @@ document.addEventListener('DOMContentLoaded', () => {
     isInteracting = false;
 
     if (currentTool === 'color') {
-      // Color swap triggered on click!
-      await applyColorSwap(pt.x, pt.y);
+      if (colorMode === 'box') {
+        if (currentBox && currentBox.w > 6 && currentBox.h > 6) {
+          await applyColorSwap(null, null, currentBox);
+        }
+      } else {
+        await applyColorSwap(pt.x, pt.y, null);
+      }
+    } else if (currentTool === 'erase') {
+      if (eraseMode === 'brush') {
+        if (hasBrushStroke && eraseAutoApply) {
+          await applyEraseMask();
+        }
+      } else if (eraseMode === 'box' && currentBox && currentBox.w > 6 && currentBox.h > 6) {
+        if (eraseAutoApply) {
+          await applyEraseBox(currentBox);
+        }
+      }
     } else if (currentTool === 'flip' && currentBox && currentBox.w > 10 && currentBox.h > 10) {
       await applyFlip(currentBox);
     } else if (currentTool === 'clone' && cloneState === 'select_source' && currentBox && currentBox.w > 10 && currentBox.h > 10) {
@@ -323,7 +560,27 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  window.addEventListener('mouseup', () => {
+    if (isInteracting && !isPanMode && !isSpacePressed) {
+      isInteracting = false;
+      redrawCanvas();
+    }
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      isInteracting = false;
+      currentBox = null;
+      if (currentTool === 'clone') {
+        resetCloneTool();
+      } else {
+        clearSelection();
+      }
+    }
+  });
+
   function resetCloneTool() {
+    isInteracting = false;
     cloneState = 'select_source';
     cloneSourceBox = null;
     clonePreviewPos = null;
@@ -339,6 +596,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Clone Action
   async function applyClone(srcBox, destX, destY) {
+    isInteracting = false;
+    currentBox = null;
     setStatus('Cloning and blending item...', true);
     try {
       const res = await fetch('/api/clone', {
@@ -353,28 +612,42 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
       resetCloneTool();
       updateStateUI(data);
-      setStatus('Item duplicated successfully!');
+      setStatus('تم تكرار العنصر بنجاح!');
     } catch (err) {
       console.error(err);
+      resetCloneTool();
       setStatus('Error duplicating item', false);
+    } finally {
+      isInteracting = false;
+      currentBox = null;
+      redrawCanvas();
     }
   }
 
   // Color Swap Action
-  async function applyColorSwap(clickX, clickY) {
-    setStatus('Changing color...', true);
+  async function applyColorSwap(clickX, clickY, box = null) {
+    setStatus('Changing color with outline precision...', true);
+    if (clickX !== null && clickY !== null) {
+      showClickIndicator(clickX, clickY);
+    }
     try {
+      const payload = {
+        preset: selectedColor,
+        tolerance: tolerance
+      };
+      if (box) {
+        payload.bbox = [box.x, box.y, box.w, box.h];
+      } else {
+        payload.click_x = clickX;
+        payload.click_y = clickY;
+      }
       const res = await fetch('/api/change-color', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          click_x: clickX,
-          click_y: clickY,
-          preset: selectedColor,
-          tolerance: tolerance
-        })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
+      clearSelection();
       updateStateUI(data);
       setStatus('Color changed successfully!');
     } catch (err) {
@@ -383,10 +656,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Erase Action
-  btnApplyErase.addEventListener('click', async () => {
+  // Erase Actions
+  async function applyEraseMask() {
     if (!hasBrushStroke) {
-      alert('Please paint over the object you want to erase first!');
+      alert('المرجو الرسم فوق العنصر المراد مسحه أولاً!');
       return;
     }
 
@@ -406,6 +679,42 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (err) {
       console.error(err);
       setStatus('Error erasing object', false);
+    }
+  }
+
+  async function applyEraseBox(box) {
+    if (!box || box.w < 6 || box.h < 6) return;
+    setStatus('Erasing area with background healing...', true);
+
+    try {
+      const res = await fetch('/api/erase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bbox: [box.x, box.y, box.w, box.h] })
+      });
+      const data = await res.json();
+      clearSelection();
+      updateStateUI(data);
+      setStatus('Object erased cleanly!');
+    } catch (err) {
+      console.error(err);
+      setStatus('Error erasing object', false);
+    }
+  }
+
+  btnApplyErase.addEventListener('click', async () => {
+    if (eraseMode === 'box') {
+      if (currentBox && currentBox.w > 6 && currentBox.h > 6) {
+        await applyEraseBox(currentBox);
+      } else {
+        alert('المرجو جر مربع حول العنصر أولاً!');
+      }
+    } else {
+      if (hasBrushStroke) {
+        await applyEraseMask();
+      } else {
+        alert('المرجو الرسم فوق العنصر أولاً!');
+      }
     }
   });
 
@@ -655,11 +964,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Quick Pan with Spacebar
+  // Keyboard shortcuts: Space for pan, [ and ] for brush size
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space' && e.target === document.body && !isSpacePressed) {
       isSpacePressed = true;
       canvasViewport.classList.add('pan-active');
+    } else if (currentTool === 'erase' && (e.target === document.body || e.target === interactiveCanvas)) {
+      if (e.key === '[') {
+        setBrushSize(Math.max(8, brushSize - 10));
+      } else if (e.key === ']') {
+        setBrushSize(Math.min(180, brushSize + 10));
+      }
     }
   });
 

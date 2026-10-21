@@ -3,37 +3,91 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-def shift_color_precise(img_bgr, click_x, click_y, bbox=None, target_color_preset='green', custom_hue_shift=None, tolerance=18):
+def shift_color_precise(img_bgr, click_x=None, click_y=None, bbox=None, target_color_preset='green', custom_hue_shift=None, tolerance=14):
     """
-    Shifts the color of the object clicked at (click_x, click_y).
-    Uses strict HSV distance from the clicked pixel so surrounding leaves/sky are 100% untouched.
+    Shifts the color of the target object with outline-bounded precision.
+    Features:
+    - Smart seed refinement to snap away from black/dark outlines.
+    - Barrier detection using dark outlines (gray < 52) & Canny edges.
+    - Outline-aware floodfill preventing any color bleed into background/lawn/tables.
+    - Box selection mode for complex/textured objects (dog, kite, characters).
+    - Preserves dark outlines, shadows, and luminance for vibrant cartoon recoloring.
     """
     img_h, img_w = img_bgr.shape[:2]
-    click_x = max(0, min(int(click_x), img_w - 1))
-    click_y = max(0, min(int(click_y), img_h - 1))
 
-    # Presets mapping to absolute target hue in OpenCV HSV space (0-180)
-    # Red is ~0, Orange is ~16, Yellow is ~30, Green is ~60, Blue is ~115, Purple is ~145
+    # Target preset hues in OpenCV HSV space (0-180)
     target_hues = {
         'green': 60,
         'yellow': 30,
         'blue': 115,
         'purple': 145,
         'orange': 16,
-        'red': 0
+        'red': 0,
+        'pink': 165,
+        'cyan': 90
     }
-    
-    # Convert image to HSV
-    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-    
-    # Sample color around the click (average of 3x3 window)
-    x0, x1 = max(0, click_x - 1), min(img_w, click_x + 2)
-    y0, y1 = max(0, click_y - 1), min(img_h, click_y + 2)
-    sample_patch = hsv[y0:y1, x0:x1]
-    
-    ref_hue = int(np.median(sample_patch[:, :, 0]))
-    ref_sat = int(np.median(sample_patch[:, :, 1]))
-    ref_val = int(np.median(sample_patch[:, :, 2]))
+
+    # 1. Determine ROI and Mode
+    if bbox:
+        bx, by, bw, bh = [int(v) for v in bbox]
+        bx = max(0, min(bx, img_w - 1))
+        by = max(0, min(by, img_h - 1))
+        bw = max(2, min(bw, img_w - bx))
+        bh = max(2, min(bh, img_h - by))
+
+        pad = 8
+        bx0 = max(0, bx - pad)
+        by0 = max(0, by - pad)
+        bx1 = min(img_w, bx + bw + pad)
+        by1 = min(img_h, by + bh + pad)
+        is_box_mode = True
+        if click_x is None: click_x = bx + bw // 2
+        if click_y is None: click_y = by + bh // 2
+    else:
+        is_box_mode = False
+        click_x = max(0, min(int(click_x), img_w - 1))
+        click_y = max(0, min(int(click_y), img_h - 1))
+        radius = 160
+        bx0 = max(0, click_x - radius)
+        by0 = max(0, click_y - radius)
+        bx1 = min(img_w, click_x + radius)
+        by1 = min(img_h, click_y + radius)
+
+    roi_bgr = img_bgr[by0:by1, bx0:bx1].copy()
+    roi_h, roi_w = roi_bgr.shape[:2]
+    roi_hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
+    roi_gray = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2GRAY)
+
+    local_cx = max(0, min(click_x - bx0, roi_w - 1))
+    local_cy = max(0, min(click_y - by0, roi_h - 1))
+
+    # 2. Multi-scale Barrier Detection (Dark Outlines + Canny Edges)
+    is_outline = (roi_gray < 52)
+    edges = cv2.Canny(cv2.GaussianBlur(roi_gray, (3, 3), 0), 40, 110)
+    barriers = cv2.bitwise_or(edges, (is_outline.astype(np.uint8) * 255))
+    barriers_dil = cv2.dilate(barriers, cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2)))
+
+    # 3. Intelligent Seed Refinement: snap away from dark outlines or barriers
+    seed_x, seed_y = local_cx, local_cy
+    if barriers_dil[local_cy, local_cx] > 0 or roi_hsv[local_cy, local_cx, 2] < 55:
+        w_size = 6
+        py0, py1 = max(0, local_cy - w_size), min(roi_h, local_cy + w_size + 1)
+        px0, px1 = max(0, local_cx - w_size), min(roi_w, local_cx + w_size + 1)
+        patch_barr = barriers_dil[py0:py1, px0:px1]
+        patch_v = roi_hsv[py0:py1, px0:px1, 2]
+        patch_s = roi_hsv[py0:py1, px0:px1, 1]
+
+        valid_coords = np.argwhere((patch_barr == 0) & (patch_v > 60) & (patch_s > 30))
+        if len(valid_coords) > 0:
+            center = np.array([local_cy - py0, local_cx - px0])
+            dists = np.sum((valid_coords - center)**2, axis=1)
+            best = valid_coords[np.argmin(dists)]
+            seed_y = py0 + best[0]
+            seed_x = px0 + best[1]
+
+    ref_hue = int(roi_hsv[seed_y, seed_x, 0])
+    ref_sat = int(roi_hsv[seed_y, seed_x, 1])
+    ref_val = int(roi_hsv[seed_y, seed_x, 2])
 
     if custom_hue_shift is not None:
         shift_val = int(custom_hue_shift) % 180
@@ -41,88 +95,65 @@ def shift_color_precise(img_bgr, click_x, click_y, bbox=None, target_color_prese
         target_hue = target_hues.get(target_color_preset.lower(), 60)
         shift_val = (target_hue - ref_hue) % 180
 
-    # If bbox is given, restrict search area; otherwise search in a radius around click
-    if bbox:
-        bx, by, bw, bh = [int(v) for v in bbox]
-        # expand slightly for margins
-        bx0 = max(0, bx - 10)
-        by0 = max(0, by - 10)
-        bx1 = min(img_w, bx + bw + 10)
-        by1 = min(img_h, by + bh + 10)
+    # 4. Generate Object Mask
+    if is_box_mode:
+        # Box mode: strictly restricted within user's box
+        user_mask = np.zeros((roi_h, roi_w), dtype=bool)
+        ubx = max(0, bx - bx0)
+        uby = max(0, by - by0)
+        user_mask[uby:uby+bh, ubx:ubx+bw] = True
+
+        h_chan = roi_hsv[:, :, 0].astype(int)
+        s_chan = roi_hsv[:, :, 1].astype(int)
+        v_chan = roi_hsv[:, :, 2].astype(int)
+        h_dist = np.minimum(np.abs(h_chan - ref_hue), 180 - np.abs(h_chan - ref_hue))
+
+        box_color_mask = user_mask & (h_dist <= tolerance) & (s_chan >= max(30, ref_sat - 65)) & (v_chan >= 55) & (~is_outline)
+        final_mask = box_color_mask.astype(np.uint8) * 255
     else:
-        # Generous search radius around click so large objects aren't clipped
-        radius = 180
-        bx0 = max(0, click_x - radius)
-        by0 = max(0, click_y - radius)
-        bx1 = min(img_w, click_x + radius)
-        by1 = min(img_h, click_y + radius)
+        # Click mode: Outline-bounded FloodFill
+        flood_mask = np.zeros((roi_h + 2, roi_w + 2), np.uint8)
+        flood_mask[1:roi_h+1, 1:roi_w+1] = (barriers_dil > 0).astype(np.uint8) * 1
 
-    roi_bgr = img_bgr[by0:by1, bx0:bx1].copy()
-    roi_hsv = hsv[by0:by1, bx0:bx1]
+        diff_limit = max(18, min(42, int(tolerance * 1.3)))
+        flags = 4 | cv2.FLOODFILL_MASK_ONLY | (2 << 8)
+        cv2.floodFill(
+            roi_bgr.copy(),
+            flood_mask,
+            (seed_x, seed_y),
+            newVal=(0, 0, 255),
+            loDiff=(diff_limit, diff_limit, diff_limit),
+            upDiff=(diff_limit, diff_limit, diff_limit),
+            flags=flags
+        )
+        filled_pixels = (flood_mask[1:roi_h+1, 1:roi_w+1] == 2).astype(np.uint8) * 255
 
-    # Calculate circular distance in hue
-    h_chan = roi_hsv[:, :, 0].astype(int)
-    s_chan = roi_hsv[:, :, 1].astype(int)
-    v_chan = roi_hsv[:, :, 2].astype(int)
+        cnts, _ = cv2.findContours(filled_pixels, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if len(cnts) > 0 and cv2.contourArea(cnts[0]) >= 8:
+            final_mask = np.zeros_like(filled_pixels)
+            cv2.drawContours(final_mask, cnts, -1, 255, -1)
+            # Expand slightly to touch inner black outline without halo
+            final_mask = cv2.dilate(final_mask, cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2)))
+            final_mask[roi_gray < 50] = 0
+        else:
+            final_mask = filled_pixels
 
-    h_dist = np.minimum(np.abs(h_chan - ref_hue), 180 - np.abs(h_chan - ref_hue))
-    
-    # Tight mask: only match colors with similar hue and similar saturation/brightness
-    # This prevents matching white highlights, black outlines, or different color neighbors
-    min_sat = max(35, ref_sat - 60)
-    min_val = max(35, ref_val - 70)
-    
-    color_mask = (h_dist <= tolerance) & (s_chan >= min_sat) & (v_chan >= min_val)
-    mask = color_mask.astype(np.uint8) * 255
-
-    # Connect contiguous region from the clicked point
-    # Flood-fill connectivity mask so disjoint objects of same color in the box aren't touched
-    local_cx = click_x - bx0
-    local_cy = click_y - by0
-    
-    # Morphological clean up
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    mask_clean = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    mask_clean = cv2.morphologyEx(mask_clean, cv2.MORPH_OPEN, kernel)
-
-    # Find the specific contour containing or closest to the click point
-    contours, _ = cv2.findContours(mask_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    final_mask = np.zeros_like(mask_clean)
-    
-    best_cnt = None
-    min_distance = float('inf')
-
-    for cnt in contours:
-        dist = cv2.pointPolygonTest(cnt, (float(local_cx), float(local_cy)), measureDist=True)
-        if dist >= 0:  # strictly inside contour
-            best_cnt = cnt
-            break
-        elif abs(dist) < min_distance and abs(dist) <= 20:
-            min_distance = abs(dist)
-            best_cnt = cnt
-
-    if best_cnt is not None:
-        cv2.drawContours(final_mask, [best_cnt], -1, 255, -1)
-    else:
-        # Fallback to cleaned mask if click was on edge
-        final_mask = mask_clean
-
-    # Soft feather edges for smooth look
-    mask_soft = cv2.GaussianBlur(final_mask, (3, 3), 0).astype(float) / 255.0
-    
-    # Apply hue shift
+    # 5. Recoloring: Rotate Hue & enhance saturation while strictly preserving Value/shading
     shifted_hsv = roi_hsv.copy()
-    shifted_hsv[:, :, 0] = (shifted_hsv[:, :, 0].astype(int) + shift_val) % 180
+    mask_bool = final_mask > 0
+    shifted_hsv[mask_bool, 0] = (shifted_hsv[mask_bool, 0].astype(int) + shift_val) % 180
+    shifted_hsv[mask_bool, 1] = np.clip(shifted_hsv[mask_bool, 1].astype(int) + 20, 0, 255).astype(np.uint8)
+
     shifted_bgr = cv2.cvtColor(shifted_hsv, cv2.COLOR_HSV2BGR)
-    
-    # Alpha blend
-    mask_3d = np.repeat(mask_soft[:, :, np.newaxis], 3, axis=2)
-    blended = (shifted_bgr * mask_3d + roi_bgr * (1.0 - mask_3d)).astype(np.uint8)
+
+    # Soft alpha blend for anti-aliasing
+    soft_mask = cv2.GaussianBlur(final_mask.astype(float) / 255.0, (3, 3), 0)[:, :, np.newaxis]
+    blended = (shifted_bgr * soft_mask + roi_bgr * (1.0 - soft_mask)).astype(np.uint8)
 
     result = img_bgr.copy()
     result[by0:by1, bx0:bx1] = blended
-    
-    # Calculate bounding box of the modified area for the solution circle
+
+    # 6. Calculate Bounding Box and Solution Metadata
     nonzero_y, nonzero_x = np.nonzero(final_mask)
     if len(nonzero_x) > 0:
         eff_bx = bx0 + int(np.min(nonzero_x))
@@ -147,35 +178,127 @@ def shift_color_precise(img_bgr, click_x, click_y, bbox=None, target_color_prese
     }
     return result, diff_meta
 
-def erase_with_mask(img_bgr, mask_img_grayscale, inpaint_radius=7):
+def erase_with_mask(img_bgr, mask_img_grayscale, inpaint_radius=None):
     """
-    Erases pixels where mask > 0 and inpaint with OpenCV Telea.
+    Erases pixels where mask > 0 with smart background healing.
+    Eliminates dark outlines, color smearing, and starburst artifacts
+    by sampling the true surrounding background and softly blending it seamlessly.
+    Protects neighboring structural outlines from being eroded or smudged.
     """
+    img_h, img_w = img_bgr.shape[:2]
     # Ensure mask has same dimensions
-    if mask_img_grayscale.shape[:2] != img_bgr.shape[:2]:
-        mask_img_grayscale = cv2.resize(mask_img_grayscale, (img_bgr.shape[1], img_bgr.shape[0]), interpolation=cv2.INTER_NEAREST)
+    if mask_img_grayscale.shape[:2] != (img_h, img_w):
+        mask_img_grayscale = cv2.resize(mask_img_grayscale, (img_w, img_h), interpolation=cv2.INTER_NEAREST)
     
-    # Slight dilation to eliminate any color halo or boundary fringes
-    dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    clean_mask = cv2.dilate(mask_img_grayscale, dilate_k, iterations=1)
-
-    # Inpaint
-    result = cv2.inpaint(img_bgr, clean_mask, inpaintRadius=inpaint_radius, flags=cv2.INPAINT_TELEA)
-    
-    # Find bounding box of erased area
     nonzero_y, nonzero_x = np.nonzero(mask_img_grayscale)
-    if len(nonzero_x) > 0:
-        bx = int(np.min(nonzero_x))
-        by = int(np.min(nonzero_y))
-        bw = int(np.max(nonzero_x) - np.min(nonzero_x))
-        bh = int(np.max(nonzero_y) - np.min(nonzero_y))
-        cx = bx + bw // 2
-        cy = by + bh // 2
-        radius = max(bw, bh) // 2 + 15
+    if len(nonzero_x) == 0:
+        return img_bgr.copy(), {
+            "type": "erase",
+            "label": "Removed item",
+            "center": [0, 0],
+            "radius": 20,
+            "bbox": [0, 0, 10, 10]
+        }
+
+    bx = int(np.min(nonzero_x))
+    by = int(np.min(nonzero_y))
+    bw = int(np.max(nonzero_x) - np.min(nonzero_x))
+    bh = int(np.max(nonzero_y) - np.min(nonzero_y))
+    cx = bx + bw // 2
+    cy = by + bh // 2
+    radius = max(bw, bh) // 2 + 15
+
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+
+    # Identify dark structural lines OUTSIDE the user's painted mask.
+    # These belong to neighboring objects (roof eaves, tables, characters) and must NEVER be eroded or smudged.
+    is_outer_dark = (gray < 52) & (mask_img_grayscale == 0)
+
+    # Adaptive dilation: swallows the object's own black outlines and anti-aliasing fringes
+    dilate_px = max(4, min(14, int(min(bw, bh) * 0.08) + 4))
+    dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dilate_px * 2 + 1, dilate_px * 2 + 1))
+    clean_mask = cv2.dilate(mask_img_grayscale, dilate_k, iterations=1)
+    
+    # Strictly prevent the dilated mask from encroaching into outer structural outlines
+    clean_mask[is_outer_dark] = 0
+
+    # Surrounding border ring to sample the local background
+    ring_w = max(10, min(25, dilate_px * 2))
+    outer_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, ((dilate_px + ring_w) * 2 + 1, (dilate_px + ring_w) * 2 + 1))
+    outer_mask = cv2.dilate(clean_mask, outer_k, iterations=1)
+    ring = cv2.subtract(outer_mask, clean_mask)
+    # Exclude dark outlines from background color sampling
+    ring[gray < 52] = 0
+
+    ring_pixels = img_bgr[ring > 0]
+    if len(ring_pixels) < 15:
+        # Near edge fallback
+        rad = inpaint_radius or max(5, dilate_px)
+        result = cv2.inpaint(img_bgr, clean_mask, inpaintRadius=rad, flags=cv2.INPAINT_TELEA)
     else:
-        bx, by, bw, bh = 0, 0, 10, 10
-        cx, cy = 0, 0
-        radius = 20
+        ring_hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)[ring > 0]
+        
+        # Check for white / neutral background (very common in cartoon walls, skies, etc.)
+        is_neutral = (ring_hsv[:, 1] < 45) & (ring_hsv[:, 2] > 155)
+        neutral_ratio = np.mean(is_neutral)
+
+        if neutral_ratio >= 0.22:
+            # Neutral / white wall background
+            selected_pixels = ring_pixels[is_neutral]
+            bg_color = np.median(selected_pixels, axis=0).astype(np.float32)
+            bg_std = np.mean(np.std(selected_pixels, axis=0))
+        else:
+            # Chromatic background (e.g. blue sky, green grass, solid yellow)
+            # Filter out dark outline pixels
+            val_filter = ring_hsv[:, 2] >= 45
+            cand_hsv = ring_hsv[val_filter] if np.sum(val_filter) > 15 else ring_hsv
+            cand_bgr = ring_pixels[val_filter] if np.sum(val_filter) > 15 else ring_pixels
+
+            # Cluster dominant Hue
+            hues = cand_hsv[:, 0]
+            hist, bins = np.histogram(hues, bins=18, range=(0, 180))
+            dom_bin = np.argmax(hist)
+            dom_min, dom_max = bins[dom_bin], bins[dom_bin + 1]
+
+            bg_select = (cand_hsv[:, 0] >= dom_min) & (cand_hsv[:, 0] <= dom_max)
+            if np.sum(bg_select) >= 10:
+                bg_pixels = cand_bgr[bg_select]
+            else:
+                bg_pixels = cand_bgr
+            bg_color = np.median(bg_pixels, axis=0).astype(np.float32)
+            bg_std = np.mean(np.std(bg_pixels, axis=0))
+
+        # Solid or smooth background (flat cartoon fill, sky, wall, grass)
+        if bg_std < 50:
+            pad = ring_w + dilate_px + 6
+            roi_x0 = max(0, bx - pad)
+            roi_y0 = max(0, by - pad)
+            roi_x1 = min(img_w, bx + bw + pad)
+            roi_y1 = min(img_h, by + bh + pad)
+
+            roi_mask = clean_mask[roi_y0:roi_y1, roi_x0:roi_x1]
+            roi_img = img_bgr[roi_y0:roi_y1, roi_x0:roi_x1].copy()
+            rh, rw = roi_img.shape[:2]
+
+            bg_fill_roi = np.full((rh, rw, 3), bg_color, dtype=np.float32)
+
+            blur_k = max(5, (dilate_px // 2) * 2 + 1)
+            alpha = cv2.GaussianBlur(roi_mask.astype(np.float32) / 255.0, (blur_k, blur_k), 0)
+            alpha_3d = np.repeat(alpha[:, :, np.newaxis], 3, axis=2)
+
+            blended_roi = (roi_img.astype(np.float32) * (1.0 - alpha_3d) + bg_fill_roi * alpha_3d).astype(np.uint8)
+
+            # Re-enforce external dark outlines in the ROI so neighboring objects remain crisp
+            roi_gray = gray[roi_y0:roi_y1, roi_x0:roi_x1]
+            roi_outer_dark = (roi_gray < 52) & (mask_img_grayscale[roi_y0:roi_y1, roi_x0:roi_x1] == 0)
+            blended_roi[roi_outer_dark] = roi_img[roi_outer_dark]
+
+            result = img_bgr.copy()
+            result[roi_y0:roi_y1, roi_x0:roi_x1] = blended_roi
+        else:
+            # Complex textured background: use Navier-Stokes with adaptive radius
+            rad = inpaint_radius or max(5, min(20, int(min(bw, bh) * 0.12)))
+            result = cv2.inpaint(img_bgr, clean_mask, inpaintRadius=rad, flags=cv2.INPAINT_NS)
 
     diff_meta = {
         "type": "erase",

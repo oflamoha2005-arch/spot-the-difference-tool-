@@ -96,47 +96,92 @@
         <div class="panel-section config-section" id="toolConfigPanel">
           <!-- Color Tool Options -->
           <div class="tool-options" id="colorOptions">
+            <label class="option-label">طريقة التحديد (Color Selection Mode):</label>
+            <div class="erase-mode-buttons" style="margin-bottom: 12px;">
+              <button type="button" class="mode-pill active" id="btnColorModeClick" data-color-mode="click">
+                🎯 نقرة ذكية (Smart Click)
+              </button>
+              <button type="button" class="mode-pill" id="btnColorModeBox" data-color-mode="box">
+                🔲 مستطيل سريع (Box Select)
+              </button>
+            </div>
+
             <label class="option-label">New Color (اختر اللون الجديد):</label>
             <div class="color-palette">
-              <button class="color-swatch active" data-color="green" style="--c: #10B981" title="Green">🍏 Green</button>
-              <button class="color-swatch" data-color="yellow" style="--c: #F59E0B" title="Yellow">🍌 Yellow</button>
-              <button class="color-swatch" data-color="blue" style="--c: #3B82F6" title="Blue">🫐 Blue</button>
-              <button class="color-swatch" data-color="purple" style="--c: #8B5CF6" title="Purple">🍇 Purple</button>
-              <button class="color-swatch" data-color="orange" style="--c: #F97316" title="Orange">🍊 Orange</button>
+              <button class="color-swatch active" data-color="purple" style="--c: #8B5CF6" title="Purple">🍇 Purple</button>
               <button class="color-swatch" data-color="red" style="--c: #EF4444" title="Red">🍓 Red</button>
+              <button class="color-swatch" data-color="blue" style="--c: #3B82F6" title="Blue">🫐 Blue</button>
+              <button class="color-swatch" data-color="green" style="--c: #10B981" title="Green">🍏 Green</button>
+              <button class="color-swatch" data-color="yellow" style="--c: #F59E0B" title="Yellow">🍌 Yellow</button>
+              <button class="color-swatch" data-color="orange" style="--c: #F97316" title="Orange">🍊 Orange</button>
+              <button class="color-swatch" data-color="pink" style="--c: #EC4899" title="Pink">🌸 Pink</button>
+              <button class="color-swatch" data-color="cyan" style="--c: #06B6D4" title="Cyan">💎 Cyan</button>
             </div>
 
             <div class="slider-group">
               <div class="slider-header">
                 <span>Color Isolation Tolerance:</span>
-                <span id="toleranceVal">22</span>
+                <span id="toleranceVal">14</span>
               </div>
-              <input type="range" id="toleranceSlider" min="10" max="45" value="22">
+              <input type="range" id="toleranceSlider" min="5" max="30" value="14">
               <p class="help-text">💡 دقة عزل اللون: كيحمي الجوانب والخلفية من التغيير.</p>
             </div>
             
-            <div class="tip-card">
-              👉 <strong>طريقة الاستعمال:</strong> كليكي مباشرة على العنصر (مثلاً تفاحة أو قميجة) باش تبدل لونو فثانية!
+            <div class="tip-card" id="colorTipCard">
+              👉 <strong>طريقة الاستعمال:</strong> كليكي مباشرة على أي عنصر (مثلثة، تفاحة، عصفور، قميجة...) باش تبدل لونو بدقة بدون ما يقيس الخلفية!
             </div>
           </div>
 
           <!-- Eraser Tool Options -->
           <div class="tool-options hidden" id="eraseOptions">
-            <div class="slider-group">
-              <div class="slider-header">
-                <span>Brush Size (حجم الممسحة):</span>
-                <span id="brushSizeVal">28px</span>
+            <label class="option-label">طريقة المسح (Erase Mode):</label>
+            <div class="erase-mode-buttons">
+              <button type="button" class="mode-pill active" id="btnEraseModeBrush" data-erase-mode="brush">
+                🖌️ فرشاة حرة (Brush)
+              </button>
+              <button type="button" class="mode-pill" id="btnEraseModeBox" data-erase-mode="box">
+                🔲 مستطيل سريع (Box)
+              </button>
+            </div>
+
+            <!-- Brush Size Controls (only in brush mode) -->
+            <div id="eraseBrushControls">
+              <div class="slider-group">
+                <div class="slider-header">
+                  <span>حجم الفرشاة (Brush Size):</span>
+                  <span id="brushSizeVal">35px</span>
+                </div>
+                <input type="range" id="brushSizeSlider" min="8" max="180" value="35">
               </div>
-              <input type="range" id="brushSizeSlider" min="10" max="60" value="28">
+
+              <!-- Quick Size Presets -->
+              <div class="quick-size-presets">
+                <button type="button" class="size-preset-btn" data-size="15">15px</button>
+                <button type="button" class="size-preset-btn active" data-size="35">35px</button>
+                <button type="button" class="size-preset-btn" data-size="70">70px</button>
+                <button type="button" class="size-preset-btn" data-size="130">130px</button>
+              </div>
             </div>
-            <div class="tip-card">
-              👉 <strong>طريقة الاستعمال:</strong> دوز الممسحة فوق العنصر اللي باغي تمسحو (مثلاً عصفور أو سحابة) وغايتمسح بالخلفية!
+
+            <!-- Auto Apply Toggle -->
+            <div class="toggle-option-card">
+              <label class="toggle-label" for="eraseAutoApplyToggle">
+                <input type="checkbox" id="eraseAutoApplyToggle" checked>
+                <span class="toggle-switch"></span>
+                <span class="toggle-text">⚡ مسح فوري عند الإفلات (Auto Erase)</span>
+              </label>
+              <p class="help-text">💡 ملي تسالي من التحديد، كيمسح العنصر فوراً بلا ما تحتاج تضغط على زر التطبيق.</p>
             </div>
+
+            <div class="tip-card" id="eraseTipCard">
+              👉 <strong>طريقة الاستعمال:</strong> دوز الممسحة فوق العنصر (عصفور، سحابة، تفاحة...) وغايتمسح بالخلفية بدون أي أثر أو تشويه!
+            </div>
+
             <button class="btn btn-secondary btn-full" id="btnApplyErase" style="margin-top: 10px;">
               ✨ تطبيق المسح (Apply Erase)
             </button>
             <button class="btn btn-ghost btn-full" id="btnClearBrush" style="margin-top: 6px;">
-              تنظيف التحديد (Clear Selection)
+              🗑️ إلغاء التحديد (Clear Selection)
             </button>
           </div>
 

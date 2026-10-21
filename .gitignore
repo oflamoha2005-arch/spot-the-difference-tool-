@@ -20,6 +20,10 @@ static/uploads/*
 *.swp
 *.swo
 
+# Temporary scratch & test videos
+scratch/
+test/
+
 # OS
 Thumbs.db
 Desktop.ini

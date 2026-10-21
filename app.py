@@ -100,7 +100,7 @@ def change_color():
     bbox = data.get('bbox')
     color_preset = data.get('preset', 'green')
     custom_shift = data.get('custom_hue_shift')
-    tolerance = int(data.get('tolerance', 22))
+    tolerance = int(data.get('tolerance', 14))
 
     if STATE["current_bgr"] is None:
         return jsonify({"error": "No image loaded"}), 400
@@ -150,10 +150,10 @@ def erase():
         mask_gray = (mask_gray > 20).astype(np.uint8) * 255
         new_img, diff_meta = engine.erase_with_mask(STATE["current_bgr"], mask_gray)
     elif bbox:
-        # Erase via bounding box
+        # Erase via bounding box (clean rectangle)
         bx, by, bw, bh = [int(v) for v in bbox]
         mask_gray = np.zeros((img_h, img_w), dtype=np.uint8)
-        cv2.ellipse(mask_gray, (bx + bw//2, by + bh//2), (bw//2, bh//2), 0, 0, 360, 255, -1)
+        cv2.rectangle(mask_gray, (bx, by), (bx + bw, by + bh), 255, -1)
         new_img, diff_meta = engine.erase_with_mask(STATE["current_bgr"], mask_gray)
     else:
         return jsonify({"error": "No mask or bbox provided"}), 400
