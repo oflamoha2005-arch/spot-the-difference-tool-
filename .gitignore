@@ -20,9 +20,19 @@ static/uploads/*
 *.swp
 *.swo
 
-# Temporary scratch & test videos
+# Temporary scratch & test videos & assets
 scratch/
 test/
+svg/
+upscaled*/
+Christmas_*
+
+# Generated media formats
+*.mp4
+*.webm
+*.avi
+*.wav
+*.mp3
 
 # OS
 Thumbs.db

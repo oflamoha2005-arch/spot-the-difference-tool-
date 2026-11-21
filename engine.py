@@ -405,42 +405,59 @@ def draw_solution_image(img_bgr, differences):
     pil_img = Image.fromarray(cv2.cvtColor(sol, cv2.COLOR_BGR2RGB))
     draw = ImageDraw.Draw(pil_img, "RGBA")
 
-    # Try loading a clear font, otherwise fallback
-    try:
-        font = ImageFont.truetype("arial.ttf", size=max(18, img_w // 40))
-    except:
-        font = ImageFont.load_default()
+    # Scalable high-visibility line width and contrast outline
+    line_w = max(8, int(img_w / 140))
+    contrast_w = line_w + 6
+    offset = (contrast_w - line_w) // 2
+
+    # Try loading a bold font for the badge
+    font_candidates = [
+        r'c:\Users\DELL\Desktop\train game\fonts\Poppins-Bold.ttf',
+        r'C:\Windows\Fonts\arialbd.ttf',
+        r'C:\Windows\Fonts\segoeuib.ttf'
+    ]
+    font_path = next((f for f in font_candidates if os.path.exists(f)), None)
 
     for idx, diff in enumerate(differences, 1):
         cx, cy = diff["center"]
         r = diff.get("radius", 35)
 
-        # Draw outer white border + vibrant red circle
+        # Draw outer pure white contrast outline + bold vibrant red circle
         x0, y0 = cx - r, cy - r
         x1, y1 = cx + r, cy + r
 
-        # White contrast outline (width 6)
-        draw.ellipse([x0-2, y0-2, x1+2, y1+2], outline=(255, 255, 255, 220), width=6)
-        # Red/Coral circle (width 4)
-        draw.ellipse([x0, y0, x1, y1], outline=(255, 59, 48, 255), width=4)
+        # White contrast outline for maximum visibility on all backgrounds
+        draw.ellipse([x0 - offset, y0 - offset, x1 + offset, y1 + offset], outline=(255, 255, 255, 255), width=contrast_w)
+        # Bold vibrant red circle
+        draw.ellipse([x0, y0, x1, y1], outline=(230, 18, 18, 255), width=line_w)
 
         # Number Badge at top-right of the circle
-        badge_r = max(14, r // 3)
+        badge_r = max(20, int(r * 0.42))
         bx, by = cx + int(r * 0.707), cy - int(r * 0.707)
-        # Badge background
-        draw.ellipse([bx - badge_r - 2, by - badge_r - 2, bx + badge_r + 2, by + badge_r + 2], fill=(255, 255, 255, 255))
-        draw.ellipse([bx - badge_r, by - badge_r, bx + badge_r, by + badge_r], fill=(255, 59, 48, 255))
-        # Number text
+
+        badge_font_size = max(20, int(badge_r * 1.25))
+        if font_path:
+            try:
+                b_font = ImageFont.truetype(font_path, size=badge_font_size)
+            except Exception:
+                b_font = ImageFont.load_default()
+        else:
+            b_font = ImageFont.load_default()
+
+        # White border + Red Badge fill
+        draw.ellipse([bx - badge_r - 3, by - badge_r - 3, bx + badge_r + 3, by + badge_r + 3], fill=(255, 255, 255, 255))
+        draw.ellipse([bx - badge_r, by - badge_r, bx + badge_r, by + badge_r], fill=(230, 18, 18, 255))
+
+        # Centered number text
         text = str(idx)
-        # Center text
-        bbox = draw.textbbox((0, 0), text, font=font)
+        bbox = draw.textbbox((0, 0), text, font=b_font)
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
-        draw.text((bx - tw / 2, by - th / 2 - 2), text, fill=(255, 255, 255, 255), font=font)
+        draw.text((bx - tw / 2, by - th / 2 - 2), text, fill=(255, 255, 255, 255), font=b_font)
 
     return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
 
-def create_kdp_puzzle_page(img_a_bgr, img_b_bgr, num_diffs=5, title="CAN YOU SPOT THE DIFFERENCES?", page_num=1, page_size="8.5x8.5"):
+def create_kdp_puzzle_page(img_a_bgr, img_b_bgr, num_diffs=5, title="CAN YOU SPOT THE DIFFERENCES?", page_num=1, page_size="8.5x8.5", show_tags=False):
     """
     Assembles a print-ready 300 DPI page for Amazon KDP.
     Default 8.5 x 8.5 inches = 2550 x 2550 px at 300 DPI.
@@ -500,10 +517,11 @@ def create_kdp_puzzle_page(img_a_bgr, img_b_bgr, num_diffs=5, title="CAN YOU SPO
     draw.rectangle([x_a - 4, y_a - 4, x_a + pil_a.width + 4, y_a + pil_a.height + 4], outline=(203, 213, 225), width=3)
     page.paste(pil_a, (x_a, y_a))
 
-    # Tag for Image A
-    tag_a = "PICTURE 1"
-    draw.rounded_rectangle([x_a + 15, y_a + 15, x_a + 180, y_a + 60], radius=8, fill=(30, 41, 59))
-    draw.text((x_a + 30, y_a + 22), tag_a, fill=(255, 255, 255), font=tag_font)
+    # Tag for Image A (hidden by default so it never obscures any differences)
+    if show_tags:
+        tag_a = "PICTURE 1"
+        draw.rounded_rectangle([x_a + 15, y_a + 15, x_a + 180, y_a + 60], radius=8, fill=(30, 41, 59))
+        draw.text((x_a + 30, y_a + 22), tag_a, fill=(255, 255, 255), font=tag_font)
 
     # Position 2: Image B (Bottom)
     x_b = (PAGE_W - pil_b.width) // 2
@@ -512,26 +530,29 @@ def create_kdp_puzzle_page(img_a_bgr, img_b_bgr, num_diffs=5, title="CAN YOU SPO
     draw.rectangle([x_b - 4, y_b - 4, x_b + pil_b.width + 4, y_b + pil_b.height + 4], outline=(203, 213, 225), width=3)
     page.paste(pil_b, (x_b, y_b))
 
-    # Tag for Image B
-    tag_b = "PICTURE 2"
-    draw.rounded_rectangle([x_b + 15, y_b + 15, x_b + 180, y_b + 60], radius=8, fill=(239, 68, 68))
-    draw.text((x_b + 30, y_b + 22), tag_b, fill=(255, 255, 255), font=tag_font)
+    # Tag for Image B (hidden by default so it never obscures any differences)
+    if show_tags:
+        tag_b = "PICTURE 2"
+        draw.rounded_rectangle([x_b + 15, y_b + 15, x_b + 180, y_b + 60], radius=8, fill=(239, 68, 68))
+        draw.text((x_b + 30, y_b + 22), tag_b, fill=(255, 255, 255), font=tag_font)
 
     # Bottom Checklist area (Circles for kid to check off as they find each difference)
-    checklist_y = y_b + pil_b.height + 35
-    circle_r = 20
-    box_gap = 130
+    checklist_y = y_b + pil_b.height + 30
+    circle_r = 18
+    # Dynamic box gap so any number of differences fits cleanly without overflow
+    max_avail_w = PAGE_W - 240
+    box_gap = min(130, max(75, max_avail_w // max(1, num_diffs)))
     total_boxes_w = num_diffs * box_gap
     start_box_x = (PAGE_W - total_boxes_w) // 2
 
     for i in range(num_diffs):
-        bx = start_box_x + i * box_gap + 40
+        bx = start_box_x + i * box_gap + (box_gap // 4)
         by = checklist_y + circle_r
         # Draw check circle
         draw.ellipse([bx - circle_r, by - circle_r, bx + circle_r, by + circle_r], outline=(148, 163, 184), width=3)
         # Number label
         lbl = f"#{i+1}"
-        draw.text((bx + circle_r + 10, by - 16), lbl, fill=(71, 85, 105), font=tag_font)
+        draw.text((bx + circle_r + 8, by - 14), lbl, fill=(71, 85, 105), font=tag_font)
 
     # Page number at the very bottom
     p_text = f"- {page_num} -"
@@ -580,10 +601,12 @@ def create_kdp_solution_page(img_sol_bgr, differences, page_num="SOLUTIONS", pag
     draw.text((220, list_y), "Differences List:", fill=(30, 41, 59), font=num_font)
     list_y += 55
 
+    half = (len(differences) + 1) // 2
     for idx, diff in enumerate(differences, 1):
-        col_x = 220 if idx <= 4 else PAGE_W // 2 + 50
-        row_y = list_y + ((idx - 1) % 4) * 55
-        
+        col_x = 220 if idx <= half else PAGE_W // 2 + 50
+        row_idx = (idx - 1) if idx <= half else (idx - 1 - half)
+        row_y = list_y + row_idx * 55
+
         # Badge
         draw.ellipse([col_x, row_y, col_x + 36, row_y + 36], fill=(239, 68, 68))
         draw.text((col_x + 11, row_y + 4), str(idx), fill=(255, 255, 255), font=num_font)
@@ -592,3 +615,400 @@ def create_kdp_solution_page(img_sol_bgr, differences, page_num="SOLUTIONS", pag
         draw.text((col_x + 55, row_y + 4), label, fill=(51, 65, 85), font=item_font)
 
     return page
+
+def get_kdp_font(name='body', size=36, bold=False):
+    """
+    Robust font loader prioritizing high-quality system fonts on Windows/Linux/macOS.
+    """
+    windir = os.environ.get('WINDIR', 'C:\\Windows')
+    font_files = {
+        'title': ['arialbd.ttf', 'segoeuib.ttf', 'calibrib.ttf'],
+        'bold': ['arialbd.ttf', 'segoeuib.ttf', 'calibrib.ttf'],
+        'body': ['arial.ttf', 'segoeui.ttf', 'calibri.ttf'],
+        'comic': ['comicbd.ttf' if bold else 'comic.ttf', 'arialbd.ttf' if bold else 'arial.ttf']
+    }
+    candidates = font_files.get(name, ['arialbd.ttf' if bold else 'arial.ttf'])
+    for cand in candidates:
+        win_path = os.path.join(windir, 'Fonts', cand)
+        if os.path.exists(win_path):
+            try:
+                return ImageFont.truetype(win_path, size=size)
+            except Exception:
+                pass
+        try:
+            return ImageFont.truetype(cand, size=size)
+        except Exception:
+            pass
+    return ImageFont.load_default()
+
+def create_kdp_belongs_to_page(title="SPOT THE DIFFERENCE", page_size="8.5x8.5"):
+    """
+    Creates an attractive 'This Book Belongs To' intro page for Amazon KDP activity books.
+    """
+    PAGE_W, PAGE_H = (2550, 3300) if page_size == "8.5x11" else (2550, 2550)
+    page = Image.new("RGB", (PAGE_W, PAGE_H), color=(255, 255, 255))
+    draw = ImageDraw.Draw(page)
+
+    margin = 120
+    draw.rounded_rectangle([margin, margin, PAGE_W - margin, PAGE_H - margin], radius=30, outline=(226, 232, 240), width=6)
+    draw.rounded_rectangle([margin + 18, margin + 18, PAGE_W - margin - 18, PAGE_H - margin - 18], radius=24, outline=(148, 163, 184), width=2)
+
+    for cx, cy in [(margin + 60, margin + 60), (PAGE_W - margin - 60, margin + 60),
+                   (margin + 60, PAGE_H - margin - 60), (PAGE_W - margin - 60, PAGE_H - margin - 60)]:
+        draw.ellipse([cx - 16, cy - 16, cx + 16, cy + 16], fill=(239, 68, 68))
+        draw.ellipse([cx - 8, cy - 8, cx + 8, cy + 8], fill=(255, 255, 255))
+
+    tag_font = get_kdp_font('bold', 38)
+    tag_text = "FUN & CHALLENGING ACTIVITY BOOK"
+    tb = draw.textbbox((0, 0), tag_text, font=tag_font)
+    tw = tb[2] - tb[0]
+    tag_y = margin + 140
+    draw.rounded_rectangle([(PAGE_W - tw) // 2 - 30, tag_y - 12, (PAGE_W + tw) // 2 + 30, tag_y + 50], radius=12, fill=(241, 245, 249))
+    draw.text(((PAGE_W - tw) // 2, tag_y), tag_text, fill=(71, 85, 105), font=tag_font)
+
+    title_font = get_kdp_font('title', 92)
+    t1 = title.upper()
+    tb1 = draw.textbbox((0, 0), t1, font=title_font)
+    draw.text(((PAGE_W - (tb1[2] - tb1[0])) // 2, tag_y + 110), t1, fill=(15, 23, 42), font=title_font)
+
+    sub_font = get_kdp_font('bold', 50)
+    t2 = "ACTIVITY PUZZLE BOOK FOR KIDS"
+    tb2 = draw.textbbox((0, 0), t2, font=sub_font)
+    draw.text(((PAGE_W - (tb2[2] - tb2[0])) // 2, tag_y + 235), t2, fill=(239, 68, 68), font=sub_font)
+
+    div_y = tag_y + 350
+    draw.line([(PAGE_W // 2 - 300), div_y, (PAGE_W // 2 + 300), div_y], fill=(203, 213, 225), width=4)
+
+    mag_y = div_y + 190
+    mag_r = 105
+    draw.ellipse([PAGE_W // 2 - mag_r - 40, mag_y - mag_r, PAGE_W // 2 + mag_r - 40, mag_y + mag_r], outline=(30, 41, 59), width=18)
+    draw.ellipse([PAGE_W // 2 - mag_r - 30, mag_y - mag_r + 10, PAGE_W // 2 + mag_r - 50, mag_y + mag_r - 10], outline=(148, 163, 184), width=6)
+    draw.line([PAGE_W // 2 + int(mag_r * 0.6) - 40, mag_y + int(mag_r * 0.6), PAGE_W // 2 + mag_r + 90, mag_y + mag_r + 130], fill=(30, 41, 59), width=28)
+
+    box_y = mag_y + 270
+    box_w = 1600
+    box_h = 360
+    bx0 = (PAGE_W - box_w) // 2
+    bx1 = bx0 + box_w
+    draw.rounded_rectangle([bx0, box_y, bx1, box_y + box_h], radius=24, outline=(203, 213, 225), width=4, fill=(248, 250, 252))
+
+    lbl_font = get_kdp_font('bold', 48)
+    lbl_text = "THIS BOOK BELONGS TO:"
+    lbb = draw.textbbox((0, 0), lbl_text, font=lbl_font)
+    draw.text(((PAGE_W - (lbb[2] - lbb[0])) // 2, box_y + 60), lbl_text, fill=(30, 41, 59), font=lbl_font)
+
+    line_y = box_y + 230
+    draw.line([bx0 + 120, line_y, bx1 - 120, line_y], fill=(148, 163, 184), width=4)
+
+    msg_font = get_kdp_font('body', 38)
+    m1 = "Sharpen your focus, train your eyes, and have fun finding all the hidden differences!"
+    mb1 = draw.textbbox((0, 0), m1, font=msg_font)
+    draw.text(((PAGE_W - (mb1[2] - mb1[0])) // 2, box_y + box_h + 120), m1, fill=(100, 116, 139), font=msg_font)
+
+    return page
+
+def create_kdp_instructions_page(page_size="8.5x8.5"):
+    """
+    Creates an instructions page (How to Play) for Amazon KDP activity books.
+    """
+    PAGE_W, PAGE_H = (2550, 3300) if page_size == "8.5x11" else (2550, 2550)
+    page = Image.new("RGB", (PAGE_W, PAGE_H), color=(255, 255, 255))
+    draw = ImageDraw.Draw(page)
+
+    margin = 120
+    draw.rounded_rectangle([margin, margin, PAGE_W - margin, PAGE_H - margin], radius=30, outline=(226, 232, 240), width=6)
+    draw.rounded_rectangle([margin + 18, margin + 18, PAGE_W - margin - 18, PAGE_H - margin - 18], radius=24, outline=(148, 163, 184), width=2)
+
+    t_font = get_kdp_font('title', 82)
+    t = "HOW TO PLAY"
+    tb = draw.textbbox((0, 0), t, font=t_font)
+    draw.text(((PAGE_W - (tb[2] - tb[0])) // 2, margin + 100), t, fill=(30, 41, 59), font=t_font)
+
+    sub_font = get_kdp_font('bold', 42)
+    sub = "Become a Master Detective in 4 Simple Steps!"
+    sb = draw.textbbox((0, 0), sub, font=sub_font)
+    draw.text(((PAGE_W - (sb[2] - sb[0])) // 2, margin + 210), sub, fill=(239, 68, 68), font=sub_font)
+
+    draw.line([PAGE_W // 2 - 250, margin + 290, PAGE_W // 2 + 250, margin + 290], fill=(203, 213, 225), width=4)
+
+    steps = [
+        ("1", "Look Closely at the Two Pictures",
+         "Picture 1 is at the top, and Picture 2 is at the bottom. At first glance they look identical, but small sneaky changes are hidden!"),
+        ("2", "Spot Every Difference",
+         "Search carefully for changes: a swapped color, a missing bird or cloud, a flipped item, or a newly added object!"),
+        ("3", "Circle and Track Your Score",
+         "Whenever you find a difference, circle it with your pencil and check off the tracker circle at the bottom of the page!"),
+        ("4", "Check Your Answers at the Back",
+         "Stuck on a tricky puzzle? Turn to the Solutions Key at the back of the book to reveal all numbered badges and locations!")
+    ]
+
+    card_y = margin + 350
+    card_w = PAGE_W - (margin * 2) - 160
+    card_x = (PAGE_W - card_w) // 2
+    step_num_font = get_kdp_font('bold', 44)
+    step_title_font = get_kdp_font('bold', 40)
+    step_desc_font = get_kdp_font('body', 34)
+
+    for num, stitle, sdesc in steps:
+        draw.rounded_rectangle([card_x, card_y, card_x + card_w, card_y + 220], radius=20, fill=(248, 250, 252), outline=(226, 232, 240), width=3)
+        badge_cx, badge_cy = card_x + 70, card_y + 110
+        draw.ellipse([badge_cx - 45, badge_cy - 45, badge_cx + 45, badge_cy + 45], fill=(239, 68, 68))
+        nb = draw.textbbox((0, 0), num, font=step_num_font)
+        draw.text((badge_cx - (nb[2] - nb[0]) // 2, badge_cy - (nb[3] - nb[1]) // 2 - 2), num, fill=(255, 255, 255), font=step_num_font)
+
+        draw.text((card_x + 145, card_y + 35), stitle, fill=(30, 41, 59), font=step_title_font)
+        draw.text((card_x + 145, card_y + 95), sdesc, fill=(100, 116, 139), font=step_desc_font)
+        card_y += 260
+
+    tip_y = card_y + 30
+    draw.rounded_rectangle([card_x, tip_y, card_x + card_w, tip_y + 180], radius=16, fill=(254, 242, 242), outline=(254, 202, 202), width=3)
+    tip_title_font = get_kdp_font('bold', 36)
+    tip_text_font = get_kdp_font('body', 32)
+    draw.text((card_x + 50, tip_y + 35), "DETECTIVE PRO TIP:", fill=(220, 38, 38), font=tip_title_font)
+    draw.text((card_x + 50, tip_y + 90), "Scan each scene systematically in a grid: sky first, then background, then main characters!", fill=(127, 29, 29), font=tip_text_font)
+
+    cr_font = get_kdp_font('body', 28)
+    cr = "All Rights Reserved. High-Resolution 300 DPI Amazon KDP Activity Book Edition."
+    crb = draw.textbbox((0, 0), cr, font=cr_font)
+    draw.text(((PAGE_W - (crb[2] - crb[0])) // 2, PAGE_H - margin - 40), cr, fill=(148, 163, 184), font=cr_font)
+
+    return page
+
+def create_kdp_certificate_page(page_size="8.5x8.5"):
+    """
+    Creates an official Master Detective completion certificate for kids.
+    """
+    PAGE_W, PAGE_H = (2550, 3300) if page_size == "8.5x11" else (2550, 2550)
+    page = Image.new("RGB", (PAGE_W, PAGE_H), color=(255, 255, 255))
+    draw = ImageDraw.Draw(page)
+
+    margin = 120
+    draw.rounded_rectangle([margin, margin, PAGE_W - margin, PAGE_H - margin], radius=32, outline=(245, 158, 11), width=8)
+    draw.rounded_rectangle([margin + 20, margin + 20, PAGE_W - margin - 20, PAGE_H - margin - 20], radius=24, outline=(30, 41, 59), width=3)
+
+    t_font = get_kdp_font('title', 90)
+    t = "CERTIFICATE"
+    tb = draw.textbbox((0, 0), t, font=t_font)
+    draw.text(((PAGE_W - (tb[2] - tb[0])) // 2, margin + 140), t, fill=(30, 41, 59), font=t_font)
+
+    sub_font = get_kdp_font('bold', 48)
+    sub = "OF COMPLETION & MASTER DETECTIVE STATUS"
+    sb = draw.textbbox((0, 0), sub, font=sub_font)
+    draw.text(((PAGE_W - (sb[2] - sb[0])) // 2, margin + 260), sub, fill=(245, 158, 11), font=sub_font)
+
+    draw.line([PAGE_W // 2 - 350, margin + 350, PAGE_W // 2 + 350, margin + 350], fill=(226, 232, 240), width=4)
+
+    pres_font = get_kdp_font('body', 42)
+    p_text = "This award is proudly presented to:"
+    pb = draw.textbbox((0, 0), p_text, font=pres_font)
+    draw.text(((PAGE_W - (pb[2] - pb[0])) // 2, margin + 460), p_text, fill=(100, 116, 139), font=pres_font)
+
+    name_line_y = margin + 700
+    draw.line([margin + 250, name_line_y, PAGE_W - margin - 250, name_line_y], fill=(30, 41, 59), width=6)
+    name_hint = "( Detective's Name )"
+    nh_font = get_kdp_font('body', 32)
+    nhb = draw.textbbox((0, 0), name_hint, font=nh_font)
+    draw.text(((PAGE_W - (nhb[2] - nhb[0])) // 2, name_line_y + 25), name_hint, fill=(148, 163, 184), font=nh_font)
+
+    desc_font = get_kdp_font('body', 40)
+    d1 = "For outstanding observational skills, sharp focus, and perseverance"
+    d2 = "in successfully finding all hidden differences across the entire book!"
+    db1 = draw.textbbox((0, 0), d1, font=desc_font)
+    db2 = draw.textbbox((0, 0), d2, font=desc_font)
+    draw.text(((PAGE_W - (db1[2] - db1[0])) // 2, margin + 870), d1, fill=(51, 65, 85), font=desc_font)
+    draw.text(((PAGE_W - (db2[2] - db2[0])) // 2, margin + 940), d2, fill=(51, 65, 85), font=desc_font)
+
+    medal_cx, medal_cy = PAGE_W // 2, margin + 1240
+    draw.ellipse([medal_cx - 100, medal_cy - 100, medal_cx + 100, medal_cy + 100], fill=(245, 158, 11))
+    draw.ellipse([medal_cx - 85, medal_cy - 85, medal_cx + 85, medal_cy + 85], fill=(255, 255, 255))
+    star_font = get_kdp_font('bold', 70)
+    st = "★"
+    stb = draw.textbbox((0, 0), st, font=star_font)
+    draw.text((medal_cx - (stb[2] - stb[0]) // 2, medal_cy - (stb[3] - stb[1]) // 2 - 5), st, fill=(245, 158, 11), font=star_font)
+
+    sig_y = margin + 1600
+    draw.line([margin + 200, sig_y, margin + 750, sig_y], fill=(148, 163, 184), width=4)
+    draw.line([PAGE_W - margin - 750, sig_y, PAGE_W - margin - 200, sig_y], fill=(148, 163, 184), width=4)
+    s_lbl_font = get_kdp_font('bold', 34)
+    draw.text((margin + 380, sig_y + 20), "DATE", fill=(100, 116, 139), font=s_lbl_font)
+    draw.text((PAGE_W - margin - 570, sig_y + 20), "OFFICIAL SEAL / SIGNATURE", fill=(100, 116, 139), font=s_lbl_font)
+
+    return page
+
+def create_kdp_multi_solution_page(solutions_batch, page_size="8.5x8.5", page_num=None):
+    """
+    Creates a 4-solutions-per-page (2x2 grid) solution key page for Amazon KDP books.
+    solutions_batch: list of up to 4 dicts:
+      [
+        {
+          "puzzle_num": 1,
+          "sol_bgr": <numpy bgr image with circles>,
+          "diff_count": 5,
+          "differences": [...]
+        }, ...
+      ]
+    """
+    PAGE_W, PAGE_H = (2550, 3300) if page_size == "8.5x11" else (2550, 2550)
+    page = Image.new("RGB", (PAGE_W, PAGE_H), color=(255, 255, 255))
+    draw = ImageDraw.Draw(page)
+
+    title_font = get_kdp_font('title', 70)
+    sub_font = get_kdp_font('body', 38)
+    p_num_font = get_kdp_font('bold', 34)
+    item_font = get_kdp_font('body', 28)
+
+    p_nums = [s.get("puzzle_num", i+1) for i, s in enumerate(solutions_batch)]
+    title_text = "SOLUTIONS KEY"
+    tb = draw.textbbox((0, 0), title_text, font=title_font)
+    draw.text(((PAGE_W - (tb[2] - tb[0])) // 2, 75), title_text, fill=(239, 68, 68), font=title_font)
+
+    range_str = f"Puzzles {p_nums[0]} - {p_nums[-1]}" if len(p_nums) > 1 else f"Puzzle {p_nums[0]}"
+    sub_text = f"Check your answers below for {range_str}"
+    sb = draw.textbbox((0, 0), sub_text, font=sub_font)
+    draw.text(((PAGE_W - (sb[2] - sb[0])) // 2, 160), sub_text, fill=(100, 116, 139), font=sub_font)
+
+    margin_x = 100
+    top_y = 230
+    bottom_y = PAGE_H - 100
+    grid_w = PAGE_W - (margin_x * 2)
+    grid_h = bottom_y - top_y
+    gap = 40
+
+    cell_w = (grid_w - gap) // 2
+    cell_h = (grid_h - gap) // 2
+
+    for idx, sol_item in enumerate(solutions_batch):
+        if idx >= 4:
+            break
+        r = idx // 2
+        c = idx % 2
+        cx = margin_x + c * (cell_w + gap)
+        cy = top_y + r * (cell_h + gap)
+
+        draw.rounded_rectangle([cx, cy, cx + cell_w, cy + cell_h], radius=16, fill=(248, 250, 252), outline=(226, 232, 240), width=3)
+
+        p_num = sol_item.get("puzzle_num", idx + 1)
+        diff_cnt = sol_item.get("diff_count", len(sol_item.get("differences", [])))
+        badge_w = 260
+        draw.rounded_rectangle([cx + 25, cy + 20, cx + 25 + badge_w, cy + 70], radius=8, fill=(30, 41, 59))
+        p_lbl = f"PUZZLE #{p_num}"
+        plb = draw.textbbox((0, 0), p_lbl, font=p_num_font)
+        draw.text((cx + 25 + (badge_w - (plb[2] - plb[0])) // 2, cy + 27), p_lbl, fill=(255, 255, 255), font=p_num_font)
+
+        cnt_lbl = f"({diff_cnt} Differences)"
+        draw.text((cx + 300, cy + 30), cnt_lbl, fill=(100, 116, 139), font=sub_font)
+
+        sol_bgr = sol_item.get("sol_bgr")
+        if sol_bgr is not None:
+            pil_sol = Image.fromarray(cv2.cvtColor(sol_bgr, cv2.COLOR_BGR2RGB))
+            max_img_w = cell_w - 50
+            max_img_h = cell_h - 180
+            pil_sol.thumbnail((max_img_w, max_img_h), Image.Resampling.LANCZOS)
+
+            img_x = cx + (cell_w - pil_sol.width) // 2
+            img_y = cy + 85
+            draw.rectangle([img_x - 3, img_y - 3, img_x + pil_sol.width + 3, img_y + pil_sol.height + 3], outline=(203, 213, 225), width=2)
+            page.paste(pil_sol, (img_x, img_y))
+
+            ft_y = img_y + pil_sol.height + 15
+            summary_txt = f"All {diff_cnt} differences circled & numbered above"
+            stb = draw.textbbox((0, 0), summary_txt, font=item_font)
+            draw.text((cx + (cell_w - (stb[2] - stb[0])) // 2, ft_y), summary_txt, fill=(71, 85, 105), font=item_font)
+
+    if page_num is not None:
+        pn_font = get_kdp_font('body', 32)
+        pn_text = f"- {page_num} -"
+        pnb = draw.textbbox((0, 0), pn_text, font=pn_font)
+        draw.text(((PAGE_W - (pnb[2] - pnb[0])) // 2, PAGE_H - 70), pn_text, fill=(148, 163, 184), font=pn_font)
+
+    return page
+
+def compile_full_kdp_book(
+    puzzles_list,
+    output_pdf_path,
+    title="SPOT THE DIFFERENCES",
+    page_size="8.5x8.5",
+    include_belongs_to=True,
+    include_instructions=True,
+    include_certificate=True,
+    solutions_per_page=4
+):
+    """
+    Compiles all puzzles into a professional 300 DPI Amazon KDP Activity Book PDF.
+    - Front matter: Belongs-To Page + How to Play Instructions
+    - Section 1: All Puzzle Pages (Sequential 1..N)
+    - Section 2: Solutions Key (4-in-1 grid)
+    - Back matter: Certificate of Completion
+    """
+    pages = []
+    current_page_num = 1
+
+    # 1. Front Matter: Belongs To Page
+    if include_belongs_to:
+        p_belongs = create_kdp_belongs_to_page(title=title, page_size=page_size)
+        pages.append(p_belongs)
+        current_page_num += 1
+
+    # 2. Front Matter: Instructions Page
+    if include_instructions:
+        p_instr = create_kdp_instructions_page(page_size=page_size)
+        pages.append(p_instr)
+        current_page_num += 1
+
+    # 3. Puzzles Section
+    solutions_data = []
+    for idx, p in enumerate(puzzles_list, 1):
+        orig_bgr = p.get("original_bgr")
+        mod_bgr = p.get("current_bgr")
+        diffs = p.get("differences", [])
+        p_title = p.get("title", f"CAN YOU SPOT THE {len(diffs)} DIFFERENCES?")
+
+        puzzle_page = create_kdp_puzzle_page(
+            orig_bgr,
+            mod_bgr,
+            num_diffs=len(diffs),
+            title=p_title,
+            page_num=current_page_num,
+            page_size=page_size
+        )
+        pages.append(puzzle_page)
+        current_page_num += 1
+
+        # Prepare solution data
+        sol_bgr = draw_solution_image(mod_bgr, diffs)
+        solutions_data.append({
+            "puzzle_num": idx,
+            "sol_bgr": sol_bgr,
+            "diff_count": len(diffs),
+            "differences": diffs
+        })
+
+    # 4. Solutions Section
+    if solutions_per_page == 4:
+        for i in range(0, len(solutions_data), 4):
+            batch = solutions_data[i:i+4]
+            sol_page = create_kdp_multi_solution_page(batch, page_size=page_size, page_num=current_page_num)
+            pages.append(sol_page)
+            current_page_num += 1
+    else:
+        for item in solutions_data:
+            sol_page = create_kdp_solution_page(item["sol_bgr"], item["differences"], page_num=current_page_num, page_size=page_size)
+            pages.append(sol_page)
+            current_page_num += 1
+
+    # 5. Back Matter: Certificate
+    if include_certificate:
+        p_cert = create_kdp_certificate_page(page_size=page_size)
+        pages.append(p_cert)
+
+    # Save to 300 DPI PDF
+    if pages:
+        pages[0].save(
+            output_pdf_path,
+            "PDF",
+            resolution=300.0,
+            save_all=True,
+            append_images=pages[1:]
+        )
+    return output_pdf_path
+

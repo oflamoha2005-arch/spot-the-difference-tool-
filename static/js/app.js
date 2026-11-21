@@ -70,7 +70,48 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnExportFullPdf = document.getElementById('btnExportFullPdf');
   const kdpPageSize = document.getElementById('kdpPageSize');
   const kdpTitle = document.getElementById('kdpTitle');
-  const kdpPageNum = document.getElementById('kdpPageNum');
+
+  // Header & Production Progress Widgets
+  const targetDiffsBadge = document.getElementById('targetDiffsBadge');
+  const progressCompletedCount = document.getElementById('progressCompletedCount');
+  const progressTotalCount = document.getElementById('progressTotalCount');
+  const progressPercentBadge = document.getElementById('progressPercentBadge');
+  const progressBarFill = document.getElementById('progressBarFill');
+
+  // Multi-Puzzle & Production Queue Elements
+  const stripCount = document.getElementById('stripCount');
+  const stripBatchInput = document.getElementById('stripBatchInput');
+  const stripAddSampleBtn = document.getElementById('stripAddSampleBtn');
+  const stripClearAllBtn = document.getElementById('stripClearAllBtn');
+  const pagesTrack = document.getElementById('pagesTrack');
+  const kdpSolutionsPerPage = document.getElementById('kdpSolutionsPerPage');
+  const chkBelongsTo = document.getElementById('chkBelongsTo');
+  const chkInstructions = document.getElementById('chkInstructions');
+  const chkCertificate = document.getElementById('chkCertificate');
+  const summaryTotalPuzzles = document.getElementById('summaryTotalPuzzles');
+  const summaryTotalDiffs = document.getElementById('summaryTotalDiffs');
+  const summaryCompletedPuzzles = document.getElementById('summaryCompletedPuzzles');
+  const summaryPendingPuzzles = document.getElementById('summaryPendingPuzzles');
+  const summaryEstPages = document.getElementById('summaryEstPages');
+  const kdpTargetDiffs = document.getElementById('kdpTargetDiffs');
+  const chkOnlyCompletedPdf = document.getElementById('chkOnlyCompletedPdf');
+
+  // Workflow Navigation & Auto-Advance Elements
+  const btnPrevPuzzle = document.getElementById('btnPrevPuzzle');
+  const btnNextPendingPuzzle = document.getElementById('btnNextPendingPuzzle');
+  const chkAutoAdvance = document.getElementById('chkAutoAdvance');
+  const tabFilterQueue = document.getElementById('tabFilterQueue');
+  const tabFilterCompleted = document.getElementById('tabFilterCompleted');
+  const tabFilterAll = document.getElementById('tabFilterAll');
+  const filterQueueCount = document.getElementById('filterQueueCount');
+  const filterCompletedCount = document.getElementById('filterCompletedCount');
+  const filterAllCount = document.getElementById('filterAllCount');
+
+  // Celebration Toast Elements
+  const completionToast = document.getElementById('completionToast');
+  const toastTitle = document.getElementById('toastTitle');
+  const toastDesc = document.getElementById('toastDesc');
+  const btnStayCurrent = document.getElementById('btnStayCurrent');
 
   // State
   let currentTool = 'color'; // 'color', 'erase', 'flip', 'clone'
@@ -83,6 +124,13 @@ document.addEventListener('DOMContentLoaded', () => {
   let eraseMode = 'brush'; // 'brush' or 'box'
   let eraseAutoApply = true;
   let brushCursorPos = null;
+
+  let currentFilter = 'queue'; // 'queue' (pending) | 'completed' | 'all'
+  let autoAdvanceTimer = null;
+  let lastCompletedPuzzleId = null;
+  let targetDifferences = 5;
+  let lastKnownPuzzles = [];
+  let lastKnownBook = null;
 
   let cloneState = 'select_source'; // 'select_source' | 'paste_target'
   let cloneSourceBox = null;
@@ -737,10 +785,294 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Toast Celebration & Notification
+  function showCelebrationToast(title, desc, autoNextMs = 0) {
+    if (!completionToast) return;
+    if (toastTitle) toastTitle.textContent = title;
+    if (toastDesc) toastDesc.textContent = desc;
+    completionToast.classList.remove('hidden');
+
+    if (autoAdvanceTimer) {
+      clearTimeout(autoAdvanceTimer);
+      autoAdvanceTimer = null;
+    }
+
+    if (autoNextMs > 0) {
+      autoAdvanceTimer = setTimeout(async () => {
+        hideCelebrationToast();
+        await goToNextPendingPuzzle();
+      }, autoNextMs);
+    }
+  }
+
+  function hideCelebrationToast() {
+    if (completionToast) {
+      completionToast.classList.add('hidden');
+    }
+    if (autoAdvanceTimer) {
+      clearTimeout(autoAdvanceTimer);
+      autoAdvanceTimer = null;
+    }
+  }
+
+  // Render Book Pages Strip & Summary
+  function renderBookStrip(book, puzzles) {
+    if (!puzzles || !pagesTrack) return;
+    lastKnownPuzzles = puzzles;
+    if (book) lastKnownBook = book;
+    const target = (book && book.target_differences) ? book.target_differences : targetDifferences;
+    targetDifferences = target;
+
+    // Filter counts
+    const completedPuzzles = puzzles.filter(p => (p.diff_count >= target || p.is_completed));
+    const queuePuzzles = puzzles.filter(p => (p.diff_count < target && !p.is_completed));
+
+    if (filterQueueCount) filterQueueCount.textContent = queuePuzzles.length;
+    if (filterCompletedCount) filterCompletedCount.textContent = completedPuzzles.length;
+    if (filterAllCount) filterAllCount.textContent = puzzles.length;
+    if (stripCount) stripCount.textContent = puzzles.length;
+
+    // Filter display list
+    let displayList = [];
+    if (currentFilter === 'queue') {
+      displayList = queuePuzzles;
+    } else if (currentFilter === 'completed') {
+      displayList = completedPuzzles;
+    } else {
+      displayList = puzzles;
+    }
+
+    if (displayList.length === 0) {
+      if (currentFilter === 'queue') {
+        if (puzzles.length > 0 && completedPuzzles.length === puzzles.length) {
+          pagesTrack.innerHTML = `
+            <div class="strip-empty-state success">
+              <span style="font-size:1.4rem;">🎉</span>
+              <span>جميع الصور مكتملة بنجاح (100%)! تم حفظها فـ تبويب "المكتملة للـ PDF" وكتابك جاهز للتحميل.</span>
+            </div>
+          `;
+        } else {
+          pagesTrack.innerHTML = `
+            <div class="strip-empty-state">
+              <span>📭</span>
+              <span>لا توجد صور قيد العمل. اضغط على "رفع عدة صور" للبدء في كتاب جديد.</span>
+            </div>
+          `;
+        }
+      } else if (currentFilter === 'completed') {
+        pagesTrack.innerHTML = `
+          <div class="strip-empty-state">
+            <span>⏳</span>
+            <span>لم تكتمل أي صورة بعد. أكمل ${target} تعديلات على أي صورة لتنتقل إلى هنا تلقائياً وتُحفظ للـ PDF.</span>
+          </div>
+        `;
+      } else {
+        pagesTrack.innerHTML = `
+          <div class="strip-empty-state">
+            <span>📁</span>
+            <span>لم تقم بإضافة أي صور بعد.</span>
+          </div>
+        `;
+      }
+    } else {
+      pagesTrack.innerHTML = displayList.map(p => {
+        const isDone = (p.diff_count >= target || p.is_completed);
+        let badgeClass = 'empty';
+        let badgeText = `${p.diff_count}/${target}`;
+        if (isDone) {
+          badgeClass = 'ready';
+          badgeText = `✅ ${p.diff_count} diffs`;
+        } else if (p.diff_count > 0) {
+          badgeClass = 'pending';
+          badgeText = `⏳ ${p.diff_count}/${target}`;
+        }
+
+        return `
+          <div class="puzzle-thumb-card ${p.is_active ? 'active' : ''} ${isDone ? 'completed-card' : ''}" data-puzzle-id="${p.id}" title="${p.title}">
+            <img class="puzzle-thumb-img" src="${p.thumb_url}" alt="Puzzle ${p.id}" loading="lazy">
+            <div class="puzzle-card-info">
+              <span class="puzzle-card-num">#${p.id}</span>
+              <span class="puzzle-card-badge ${badgeClass}">${badgeText}</span>
+            </div>
+            ${puzzles.length > 1 ? `<button class="puzzle-card-delete" data-delete-id="${p.id}" title="حذف هذا اللغز">×</button>` : ''}
+          </div>
+        `;
+      }).join('');
+
+      // Attach click listeners to cards
+      pagesTrack.querySelectorAll('.puzzle-thumb-card').forEach(card => {
+        card.addEventListener('click', async (e) => {
+          if (e.target.closest('.puzzle-card-delete')) return;
+          const pId = parseInt(card.dataset.puzzleId);
+          await selectPuzzle(pId);
+        });
+      });
+
+      // Attach click listeners to delete buttons
+      pagesTrack.querySelectorAll('.puzzle-card-delete').forEach(delBtn => {
+        delBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const pId = parseInt(delBtn.dataset.deleteId);
+          if (confirm(`هل أنت متأكد من حذف اللغز #${pId}؟`)) {
+            await deletePuzzle(pId);
+          }
+        });
+      });
+    }
+
+    updateBookSummary(book, puzzles);
+  }
+
+  function updateBookSummary(book, puzzles) {
+    if (!puzzles) return;
+    const target = (book && book.target_differences) ? book.target_differences : targetDifferences;
+    const totalPuzzles = puzzles.length;
+    const completedCount = puzzles.filter(p => (p.diff_count >= target || p.is_completed)).length;
+    const pendingCount = totalPuzzles - completedCount;
+    const progressPct = totalPuzzles > 0 ? Math.round((completedCount / totalPuzzles) * 100) : 0;
+
+    // Header progress widgets
+    if (progressCompletedCount) progressCompletedCount.textContent = completedCount;
+    if (progressTotalCount) progressTotalCount.textContent = totalPuzzles;
+    if (progressPercentBadge) progressPercentBadge.textContent = `${progressPct}%`;
+    if (progressBarFill) progressBarFill.style.width = `${progressPct}%`;
+
+    // Right sidebar summary stats
+    if (summaryTotalPuzzles) summaryTotalPuzzles.textContent = totalPuzzles;
+    if (summaryCompletedPuzzles) summaryCompletedPuzzles.textContent = completedCount;
+    if (summaryPendingPuzzles) summaryPendingPuzzles.textContent = pendingCount;
+    if (summaryTotalDiffs) {
+      summaryTotalDiffs.textContent = puzzles.reduce((sum, p) => sum + (p.diff_count || 0), 0);
+    }
+
+    const hasBelongs = chkBelongsTo ? chkBelongsTo.checked : (book ? book.include_belongs_to : true);
+    const hasInstr = chkInstructions ? chkInstructions.checked : (book ? book.include_instructions : true);
+    const hasCert = chkCertificate ? chkCertificate.checked : (book ? book.include_certificate : true);
+    const solsPerPg = kdpSolutionsPerPage ? parseInt(kdpSolutionsPerPage.value) : 4;
+    const onlyComp = chkOnlyCompletedPdf ? chkOnlyCompletedPdf.checked : true;
+
+    const effectivePuzzles = onlyComp ? (completedCount > 0 ? completedCount : totalPuzzles) : totalPuzzles;
+    const frontPages = (hasBelongs ? 1 : 0) + (hasInstr ? 1 : 0);
+    const certPages = hasCert ? 1 : 0;
+    const solPages = solsPerPg === 4 ? Math.ceil(effectivePuzzles / 4) : effectivePuzzles;
+    const estPages = frontPages + effectivePuzzles + solPages + certPages;
+
+    if (summaryEstPages) summaryEstPages.textContent = `${estPages} Pages (300 DPI)`;
+    if (btnExportFullPdf) {
+      btnExportFullPdf.innerHTML = `📕 تحميل الكتاب كامل (PDF 300 DPI) [${effectivePuzzles} لغز]`;
+    }
+  }
+
+  // Select Puzzle
+  async function selectPuzzle(puzzleId) {
+    setStatus(`Loading Puzzle #${puzzleId}...`, true);
+    try {
+      const res = await fetch('/api/book/select-puzzle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ puzzle_id: puzzleId })
+      });
+      const data = await res.json();
+      clearSelection();
+      updateStateUI(data);
+      setStatus(`Puzzle #${puzzleId} loaded.`);
+    } catch (err) {
+      console.error(err);
+      setStatus('Failed to switch puzzle', false);
+    }
+  }
+
+  // Next Pending Puzzle (Auto-Queue)
+  async function goToNextPendingPuzzle() {
+    setStatus('Loading next pending puzzle...', true);
+    try {
+      const res = await fetch('/api/book/next-pending', { method: 'POST' });
+      const data = await res.json();
+      clearSelection();
+      updateStateUI(data);
+      if (data.book && data.book.pending_count === 0) {
+        showCelebrationToast('🎉 تهانينا! جميع صور الكتاب مكتملة!', 'تم إنجاز 100% من الألغاز. يمكنك الآن تحميل كتاب الـ PDF كامل.');
+      } else {
+        setStatus(`Switched to Puzzle #${data.active_puzzle.id}`);
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus('Failed to switch puzzle', false);
+    }
+  }
+
+  // Previous Puzzle
+  async function goToPrevPuzzle() {
+    setStatus('Loading previous puzzle...', true);
+    try {
+      const res = await fetch('/api/book/prev-puzzle', { method: 'POST' });
+      const data = await res.json();
+      clearSelection();
+      updateStateUI(data);
+      setStatus(`Switched to Puzzle #${data.active_puzzle.id}`);
+    } catch (err) {
+      console.error(err);
+      setStatus('Failed to switch puzzle', false);
+    }
+  }
+
+  // Delete Puzzle
+  async function deletePuzzle(puzzleId) {
+    setStatus(`Deleting Puzzle #${puzzleId}...`, true);
+    try {
+      const res = await fetch('/api/book/delete-puzzle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ puzzle_id: puzzleId })
+      });
+      const data = await res.json();
+      clearSelection();
+      updateStateUI(data);
+      setStatus(`Puzzle #${puzzleId} deleted.`);
+    } catch (err) {
+      console.error(err);
+      setStatus('Failed to delete puzzle', false);
+    }
+  }
+
+  // Batch Upload Handling
+  async function handleBatchUpload(fileList) {
+    if (!fileList || fileList.length === 0) return;
+    setStatus(`Uploading ${fileList.length} image(s)...`, true);
+    const formData = new FormData();
+    for (let i = 0; i < fileList.length; i++) {
+      formData.append('files', fileList[i]);
+    }
+    try {
+      const res = await fetch('/api/book/upload-batch', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+
+      // Automatically switch to queue tab so user sees all pending images
+      currentFilter = 'queue';
+      if (tabFilterQueue) tabFilterQueue.classList.add('active');
+      if (tabFilterCompleted) tabFilterCompleted.classList.remove('active');
+      if (tabFilterAll) tabFilterAll.classList.remove('active');
+
+      clearSelection();
+      updateStateUI(data);
+      setStatus(`${fileList.length} image(s) added to production queue!`);
+    } catch (err) {
+      console.error(err);
+      setStatus('Batch upload failed', false);
+    }
+  }
+
   // Update State UI
   function updateStateUI(state) {
-    diffCountBadge.textContent = state.differences_count;
-    diffTotal.textContent = state.differences_count;
+    const target = (state.book && state.book.target_differences) ? state.book.target_differences : targetDifferences;
+    targetDifferences = target;
+
+    if (diffCountBadge) diffCountBadge.textContent = state.differences_count;
+    if (targetDiffsBadge) targetDiffsBadge.textContent = target;
+    if (diffTotal) diffTotal.textContent = state.differences_count;
     btnUndo.disabled = !state.has_undo;
     if (btnUndoLastDiff) btnUndoLastDiff.disabled = !state.has_undo;
 
@@ -769,6 +1101,45 @@ document.addEventListener('DOMContentLoaded', () => {
           <span style="color:var(--text-dim);font-size:0.7rem;">(${d.center[0]}, ${d.center[1]})</span>
         </div>
       `).join('');
+    }
+
+    // Check for Completion & Auto-Advance
+    const isCompleted = state.differences_count >= target;
+    if (isCompleted && lastCompletedPuzzleId !== state.active_puzzle.id) {
+      lastCompletedPuzzleId = state.active_puzzle.id;
+      const isAutoAdv = chkAutoAdvance ? chkAutoAdvance.checked : true;
+      const hasMorePending = state.book && state.book.pending_count > 0;
+
+      if (hasMorePending) {
+        if (isAutoAdv) {
+          showCelebrationToast(
+            `🎉 لغز #${state.active_puzzle.id} مكتمل (${state.differences_count}/${target})!`,
+            `تم الحفظ والنقل إلى "المكتملة للـ PDF". جاري الانتقال للصورة الموالية تلقائياً...`,
+            1200
+          );
+        } else {
+          showCelebrationToast(
+            `🎉 لغز #${state.active_puzzle.id} مكتمل (${state.differences_count}/${target})!`,
+            `تم الحفظ والنقل إلى "المكتملة للـ PDF". يمكنك الانتقال للصورة الموالية وقتما تشاء.`,
+            0
+          );
+        }
+      } else {
+        showCelebrationToast(
+          `🎉 تهانينا! جميع صور الكتاب مكتملة!`,
+          `تم إنجاز جميع الألغاز بنجاح (${state.book.total_puzzles}/${state.book.total_puzzles}). كتابك جاهز الآن للتحميل الكامل كـ PDF.`,
+          0
+        );
+      }
+    } else if (!isCompleted && lastCompletedPuzzleId === state.active_puzzle.id) {
+      // If user undid a difference and dropped below target, reset lastCompletedPuzzleId
+      lastCompletedPuzzleId = null;
+      hideCelebrationToast();
+    }
+
+    // Render Filmstrip & Summary
+    if (state.puzzles) {
+      renderBookStrip(state.book, state.puzzles);
     }
   }
 
@@ -806,7 +1177,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Reset
   btnReset.addEventListener('click', async () => {
-    if (!confirm('Are you sure you want to reset all differences?')) return;
+    if (!confirm('Are you sure you want to reset all differences for this puzzle?')) return;
     setStatus('Resetting...', true);
     try {
       const res = await fetch('/api/reset', { method: 'POST' });
@@ -819,41 +1190,82 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Load Sample
+  // Load Sample Button in Header
   btnLoadSample.addEventListener('click', async () => {
-    setStatus('Loading sample...', true);
+    setStatus('Adding sample puzzle...', true);
     try {
       const res = await fetch('/api/load-sample', { method: 'POST' });
       const data = await res.json();
       clearSelection();
       updateStateUI(data);
-      setStatus('Sample park image loaded.');
+      setStatus('Sample park puzzle added.');
     } catch (err) {
       console.error(err);
     }
   });
 
-  // Upload Custom Image
-  fileUploadInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  // Strip Sample Add Button
+  if (stripAddSampleBtn) {
+    stripAddSampleBtn.addEventListener('click', async () => {
+      setStatus('Adding sample puzzle...', true);
+      try {
+        const res = await fetch('/api/book/add-sample', { method: 'POST' });
+        const data = await res.json();
+        clearSelection();
+        updateStateUI(data);
+        setStatus('Sample park puzzle added to book.');
+      } catch (err) {
+        console.error(err);
+      }
+    });
+  }
 
-    const formData = new FormData();
-    formData.append('file', file);
-
-    setStatus('Uploading image...', true);
+  // Strip 1-Click Clear All Button
+  const handleClearAllAction = async () => {
+    const confirmed = confirm('هل أنت متأكد من مسح جميع الصور في الكتاب والبدء من جديد بضغطة واحدة؟');
+    if (!confirmed) return;
+    setStatus('Clearing all book puzzles...', true);
     try {
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData
-      });
+      const res = await fetch('/api/book/clear-all', { method: 'POST' });
       const data = await res.json();
       clearSelection();
       updateStateUI(data);
-      setStatus('Custom image uploaded!');
+      setStatus('All puzzles cleared successfully. Ready for new images.');
     } catch (err) {
       console.error(err);
-      setStatus('Upload failed', false);
+      setStatus('Failed to clear puzzles.', false);
+    }
+  };
+
+  if (stripClearAllBtn) {
+    stripClearAllBtn.addEventListener('click', handleClearAllAction);
+  }
+
+  const btnSideClearAll = document.getElementById('btnSideClearAll');
+  if (btnSideClearAll) {
+    btnSideClearAll.addEventListener('click', handleClearAllAction);
+  }
+
+  // Multi-Image Upload inputs
+  fileUploadInput.addEventListener('change', async (e) => {
+    await handleBatchUpload(e.target.files);
+    e.target.value = '';
+  });
+
+  if (stripBatchInput) {
+    stripBatchInput.addEventListener('change', async (e) => {
+      await handleBatchUpload(e.target.files);
+      e.target.value = '';
+    });
+  }
+
+  // Summary recalculation on config toggles
+  [chkBelongsTo, chkInstructions, chkCertificate, kdpSolutionsPerPage].forEach(el => {
+    if (el) {
+      el.addEventListener('change', () => {
+        // Trigger live summary recalculation
+        fetchState();
+      });
     }
   });
 
@@ -865,13 +1277,12 @@ document.addEventListener('DOMContentLoaded', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: kdpTitle.value,
-          page_size: kdpPageSize.value,
-          page_num: kdpPageNum.value
+          title: kdpTitle ? kdpTitle.value : 'SPOT THE DIFFERENCES!',
+          page_size: kdpPageSize ? kdpPageSize.value : '8.5x8.5'
         })
       });
       const blob = await res.blob();
-      downloadBlob(blob, `KDP_Puzzle_Page_${kdpPageNum.value}_300DPI.png`);
+      downloadBlob(blob, `KDP_Puzzle_Page_300DPI.png`);
       setStatus('Puzzle Page PNG downloaded!');
     } catch (err) {
       console.error(err);
@@ -886,7 +1297,7 @@ document.addEventListener('DOMContentLoaded', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          page_size: kdpPageSize.value
+          page_size: kdpPageSize ? kdpPageSize.value : '8.5x8.5'
         })
       });
       const blob = await res.blob();
@@ -905,15 +1316,25 @@ document.addEventListener('DOMContentLoaded', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: kdpTitle.value,
-          page_size: kdpPageSize.value
+          title: kdpTitle ? kdpTitle.value : 'SPOT THE DIFFERENCES!',
+          page_size: kdpPageSize ? kdpPageSize.value : '8.5x8.5',
+          include_belongs_to: chkBelongsTo ? chkBelongsTo.checked : true,
+          include_instructions: chkInstructions ? chkInstructions.checked : true,
+          include_certificate: chkCertificate ? chkCertificate.checked : true,
+          solutions_per_page: kdpSolutionsPerPage ? parseInt(kdpSolutionsPerPage.value) : 4,
+          only_completed: chkOnlyCompletedPdf ? chkOnlyCompletedPdf.checked : true
         })
       });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Export PDF returned error status');
+      }
       const blob = await res.blob();
       downloadBlob(blob, 'Spot_The_Differences_Book_300DPI.pdf');
       setStatus('Complete PDF Book downloaded!');
     } catch (err) {
       console.error(err);
+      alert(err.message || 'Error generating PDF. Please ensure at least one puzzle has differences.');
       setStatus('Export error', false);
     }
   });
@@ -927,6 +1348,85 @@ document.addEventListener('DOMContentLoaded', () => {
     a.click();
     a.remove();
     window.URL.revokeObjectURL(url);
+  }
+
+  // --- Smart Queue Filter Tabs Event Listeners ---
+  if (tabFilterQueue) {
+    tabFilterQueue.addEventListener('click', () => {
+      currentFilter = 'queue';
+      tabFilterQueue.classList.add('active');
+      if (tabFilterCompleted) tabFilterCompleted.classList.remove('active');
+      if (tabFilterAll) tabFilterAll.classList.remove('active');
+      renderBookStrip(lastKnownBook, lastKnownPuzzles);
+    });
+  }
+
+  if (tabFilterCompleted) {
+    tabFilterCompleted.addEventListener('click', () => {
+      currentFilter = 'completed';
+      tabFilterCompleted.classList.add('active');
+      if (tabFilterQueue) tabFilterQueue.classList.remove('active');
+      if (tabFilterAll) tabFilterAll.classList.remove('active');
+      renderBookStrip(lastKnownBook, lastKnownPuzzles);
+    });
+  }
+
+  if (tabFilterAll) {
+    tabFilterAll.addEventListener('click', () => {
+      currentFilter = 'all';
+      tabFilterAll.classList.add('active');
+      if (tabFilterQueue) tabFilterQueue.classList.remove('active');
+      if (tabFilterCompleted) tabFilterCompleted.classList.remove('active');
+      renderBookStrip(lastKnownBook, lastKnownPuzzles);
+    });
+  }
+
+  // Target Differences Setting
+  if (kdpTargetDiffs) {
+    kdpTargetDiffs.addEventListener('change', async () => {
+      const newTarget = parseInt(kdpTargetDiffs.value);
+      targetDifferences = newTarget;
+      try {
+        const res = await fetch('/api/book/update-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target_differences: newTarget })
+        });
+        const data = await res.json();
+        updateStateUI(data);
+      } catch (err) {
+        console.error(err);
+      }
+    });
+  }
+
+  // Safe PDF Toggle
+  if (chkOnlyCompletedPdf) {
+    chkOnlyCompletedPdf.addEventListener('change', () => {
+      updateBookSummary(lastKnownBook, lastKnownPuzzles);
+    });
+  }
+
+  // Quick Workflow Navigation Buttons
+  if (btnNextPendingPuzzle) {
+    btnNextPendingPuzzle.addEventListener('click', () => {
+      hideCelebrationToast();
+      goToNextPendingPuzzle();
+    });
+  }
+
+  if (btnPrevPuzzle) {
+    btnPrevPuzzle.addEventListener('click', () => {
+      hideCelebrationToast();
+      goToPrevPuzzle();
+    });
+  }
+
+  // Toast Stay Button
+  if (btnStayCurrent) {
+    btnStayCurrent.addEventListener('click', () => {
+      hideCelebrationToast();
+    });
   }
 
   // --- Zoom & Pan Engine ---
@@ -952,14 +1452,17 @@ document.addEventListener('DOMContentLoaded', () => {
   if (btnZoomReset) btnZoomReset.addEventListener('click', () => setZoom(1.0));
 
   if (btnPanToggle) {
+    const panBtnText = document.getElementById('panBtnText');
     btnPanToggle.addEventListener('click', () => {
       isPanMode = !isPanMode;
       btnPanToggle.classList.toggle('active', isPanMode);
       canvasViewport.classList.toggle('pan-active', isPanMode);
       if (isPanMode) {
-        setStatus('وضع التحريك شغال: جر الماوس لتحريك الصورة');
+        if (panBtnText) panBtnText.textContent = '✋ وضع التحريك (Pan: ON)';
+        setStatus('✋ وضع التحريك شغال: جر بالماوس باش تحرك الصورة فـ الكانفاس');
       } else {
-        setStatus('Ready');
+        if (panBtnText) panBtnText.textContent = '✋ تحريك الصفحة (Pan)';
+        setStatus('🎯 وضع النقر والتعديل شغال: كليكي مباشرة على الصورة');
       }
     });
   }
@@ -969,6 +1472,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.code === 'Space' && e.target === document.body && !isSpacePressed) {
       isSpacePressed = true;
       canvasViewport.classList.add('pan-active');
+      if (btnPanToggle) btnPanToggle.classList.add('active');
     } else if (currentTool === 'erase' && (e.target === document.body || e.target === interactiveCanvas)) {
       if (e.key === '[') {
         setBrushSize(Math.max(8, brushSize - 10));
@@ -983,6 +1487,7 @@ document.addEventListener('DOMContentLoaded', () => {
       isSpacePressed = false;
       if (!isPanMode) {
         canvasViewport.classList.remove('pan-active');
+        if (btnPanToggle) btnPanToggle.classList.remove('active');
       }
     }
   });
@@ -1017,6 +1522,273 @@ document.addEventListener('DOMContentLoaded', () => {
       if (isPanningDrag) {
         isPanningDrag = false;
         canvasViewport.classList.remove('pan-grabbing');
+      }
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // KDP AI PROMPT STUDIO (Winter / Christmas & Custom Niches)
+  // -------------------------------------------------------------------------
+  const btnOpenPromptModal = document.getElementById('btnOpenPromptModal');
+  const btnClosePromptModal = document.getElementById('btnClosePromptModal');
+  const promptModal = document.getElementById('promptModal');
+
+  const promptNicheSelect = document.getElementById('promptNicheSelect');
+  const promptModelSelect = document.getElementById('promptModelSelect');
+  const promptArSelect = document.getElementById('promptArSelect');
+  const promptCustomCount = document.getElementById('promptCustomCount');
+  const countPresetBtns = document.querySelectorAll('.count-preset-btn');
+
+  const btnGeneratePrompts = document.getElementById('btnGeneratePrompts');
+  const promptResultsCount = document.getElementById('promptResultsCount');
+  const promptSearchInput = document.getElementById('promptSearchInput');
+  const promptCardsContainer = document.getElementById('promptCardsContainer');
+
+  const btnCopyAllPrompts = document.getElementById('btnCopyAllPrompts');
+  const btnDownloadPromptsTxt = document.getElementById('btnDownloadPromptsTxt');
+  const btnDownloadPromptsCsv = document.getElementById('btnDownloadPromptsCsv');
+
+  let currentPromptsList = [];
+
+  // Open / Close Modal
+  if (btnOpenPromptModal) {
+    btnOpenPromptModal.addEventListener('click', () => {
+      promptModal.classList.remove('hidden');
+    });
+  }
+
+  if (btnClosePromptModal) {
+    btnClosePromptModal.addEventListener('click', () => {
+      promptModal.classList.add('hidden');
+    });
+  }
+
+  // Close on outside click
+  if (promptModal) {
+    promptModal.addEventListener('click', (e) => {
+      if (e.target === promptModal) {
+        promptModal.classList.add('hidden');
+      }
+    });
+  }
+
+  // Close on Escape
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && promptModal && !promptModal.classList.contains('hidden')) {
+      promptModal.classList.add('hidden');
+    }
+  });
+
+  // Count Presets
+  countPresetBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      countPresetBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const val = parseInt(btn.dataset.count);
+      if (promptCustomCount) promptCustomCount.value = val;
+      if (btnGeneratePrompts) {
+        btnGeneratePrompts.textContent = `✨ توليد ${val} برومت فـ دقة وحدة`;
+      }
+    });
+  });
+
+  if (promptCustomCount) {
+    promptCustomCount.addEventListener('input', () => {
+      const val = parseInt(promptCustomCount.value) || 50;
+      countPresetBtns.forEach(b => {
+        b.classList.toggle('active', parseInt(b.dataset.count) === val);
+      });
+      if (btnGeneratePrompts) {
+        btnGeneratePrompts.textContent = `✨ توليد ${val} برومت فـ دقة وحدة`;
+      }
+    });
+  }
+
+  // Generate Prompts Action
+  if (btnGeneratePrompts) {
+    btnGeneratePrompts.addEventListener('click', async () => {
+      const niche = promptNicheSelect ? promptNicheSelect.value : 'winter_christmas';
+      const count = promptCustomCount ? (parseInt(promptCustomCount.value) || 50) : 50;
+      const targetModel = promptModelSelect ? promptModelSelect.value : 'midjourney';
+      const ar = promptArSelect ? promptArSelect.value : '1:1';
+
+      btnGeneratePrompts.disabled = true;
+      btnGeneratePrompts.textContent = '⏳ جاري توليد البرومتات...';
+      setStatus(`Generating ${count} ${niche} prompts...`, true);
+
+      try {
+        const res = await fetch('/api/prompts/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            niche: niche,
+            count: count,
+            target_model: targetModel,
+            aspect_ratio: ar
+          })
+        });
+
+        const data = await res.json();
+        currentPromptsList = data.prompts || [];
+        renderPromptsList(currentPromptsList);
+        setStatus(`${currentPromptsList.length} prompts generated successfully!`);
+      } catch (err) {
+        console.error(err);
+        setStatus('Failed to generate prompts', false);
+      } finally {
+        btnGeneratePrompts.disabled = false;
+        btnGeneratePrompts.textContent = `✨ توليد ${count} برومت فـ دقة وحدة`;
+      }
+    });
+  }
+
+  // Render Prompt Cards
+  function renderPromptsList(prompts) {
+    if (!promptCardsContainer) return;
+    if (promptResultsCount) promptResultsCount.textContent = prompts.length;
+
+    if (prompts.length === 0) {
+      promptCardsContainer.innerHTML = `
+        <div class="prompt-empty-state">
+          <span>🔍</span>
+          <h3>لا توجد نتائج تطابق بحثك</h3>
+          <p>جرب كتابة كلمات أخرى أو امسح شريط البحث.</p>
+        </div>
+      `;
+      return;
+    }
+
+    promptCardsContainer.innerHTML = prompts.map(p => `
+      <div class="prompt-result-card" data-prompt-id="${p.id}">
+        <div class="card-top-row">
+          <div class="card-title-group">
+            <span class="card-num-badge">#${p.id}</span>
+            <span class="card-title">${p.title}</span>
+          </div>
+          <button class="btn-copy-card" data-copy-text="${encodeURIComponent(p.prompt)}">
+            📋 Copy Prompt
+          </button>
+        </div>
+        <div class="card-prompt-box">${escapeHtml(p.prompt)}</div>
+        <div class="card-diffs-box">
+          <span class="card-diffs-header">🎯 الفروقات المقترحة لهاد الصورة فـ Studio:</span>
+          <div class="card-diffs-tags">
+            ${p.suggested_differences.map(d => `<span class="diff-tag">${escapeHtml(d)}</span>`).join('')}
+          </div>
+        </div>
+      </div>
+    `).join('');
+
+    // Attach 1-click copy listeners
+    promptCardsContainer.querySelectorAll('.btn-copy-card').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const text = decodeURIComponent(btn.dataset.copyText);
+        try {
+          await navigator.clipboard.writeText(text);
+          btn.textContent = '✅ Copied!';
+          btn.classList.add('copied');
+          setTimeout(() => {
+            btn.textContent = '📋 Copy Prompt';
+            btn.classList.remove('copied');
+          }, 2000);
+        } catch (err) {
+          console.error(err);
+        }
+      });
+    });
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  // Live Search Filter
+  if (promptSearchInput) {
+    promptSearchInput.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      if (!q) {
+        renderPromptsList(currentPromptsList);
+        return;
+      }
+      const filtered = currentPromptsList.filter(p =>
+        p.title.toLowerCase().includes(q) ||
+        p.prompt.toLowerCase().includes(q) ||
+        p.suggested_differences.some(d => d.toLowerCase().includes(q))
+      );
+      renderPromptsList(filtered);
+    });
+  }
+
+  // Copy All Action
+  if (btnCopyAllPrompts) {
+    btnCopyAllPrompts.addEventListener('click', async () => {
+      if (currentPromptsList.length === 0) {
+        alert('يرجى توليد البرومتات أولاً!');
+        return;
+      }
+      const allText = currentPromptsList.map((p, i) => `Prompt #${i+1} - ${p.title}:\n${p.prompt}\n`).join('\n' + '='.repeat(40) + '\n\n');
+      try {
+        await navigator.clipboard.writeText(allText);
+        btnCopyAllPrompts.textContent = '✅ تم نسخ جميع البرومتات!';
+        setTimeout(() => {
+          btnCopyAllPrompts.textContent = '📋 نسخ الكل (Copy All)';
+        }, 2500);
+      } catch (err) {
+        console.error(err);
+      }
+    });
+  }
+
+  // Download TXT
+  if (btnDownloadPromptsTxt) {
+    btnDownloadPromptsTxt.addEventListener('click', async () => {
+      if (currentPromptsList.length === 0) {
+        alert('يرجى توليد البرومتات أولاً!');
+        return;
+      }
+      try {
+        const res = await fetch('/api/prompts/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            format: 'txt',
+            prompts: currentPromptsList
+          })
+        });
+        const blob = await res.blob();
+        downloadBlob(blob, `KDP_Prompts_${currentPromptsList.length}.txt`);
+      } catch (err) {
+        console.error(err);
+      }
+    });
+  }
+
+  // Download CSV
+  if (btnDownloadPromptsCsv) {
+    btnDownloadPromptsCsv.addEventListener('click', async () => {
+      if (currentPromptsList.length === 0) {
+        alert('يرجى توليد البرومتات أولاً!');
+        return;
+      }
+      try {
+        const res = await fetch('/api/prompts/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            format: 'csv',
+            prompts: currentPromptsList
+          })
+        });
+        const blob = await res.blob();
+        downloadBlob(blob, `KDP_Prompts_${currentPromptsList.length}.csv`);
+      } catch (err) {
+        console.error(err);
       }
     });
   }

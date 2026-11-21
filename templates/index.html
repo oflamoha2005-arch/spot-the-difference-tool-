@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="/static/css/style.css?v=3.1">
 </head>
 <body>
   <div class="app-container">
@@ -22,23 +22,41 @@
       </div>
 
       <div class="header-center">
-        <div class="counter-badge">
-          <span class="counter-label">Differences Created</span>
-          <span class="counter-val" id="diffCountBadge">0</span>
-          <span class="counter-target">/ 5 Recommended</span>
+        <div class="header-status-group">
+          <!-- Active Puzzle Differences -->
+          <div class="counter-badge" id="puzzleDiffsBadge">
+            <span class="counter-label">Current Puzzle</span>
+            <span class="counter-val" id="diffCountBadge">0</span>
+            <span class="counter-target">/ <span id="targetDiffsBadge">5</span> Diffs</span>
+          </div>
+
+          <!-- Overall Book Production Progress -->
+          <div class="book-progress-widget" id="bookProgressWidget" title="نسبة إنجاز صفحات الكتاب كامل">
+            <div class="progress-info-row">
+              <span class="progress-title">📚 Book Progress:</span>
+              <span class="progress-stats"><strong id="progressCompletedCount">0</strong> / <span id="progressTotalCount">1</span> Done</span>
+              <span class="progress-percent" id="progressPercentBadge">0%</span>
+            </div>
+            <div class="progress-bar-track">
+              <div class="progress-bar-fill" id="progressBarFill" style="width: 0%;"></div>
+            </div>
+          </div>
         </div>
       </div>
 
       <div class="header-actions">
-        <button id="btnLoadSample" class="btn btn-secondary" title="Load sample park image">
-          <span class="btn-icon">🌳</span> Sample Image
+        <button id="btnOpenPromptModal" class="btn btn-primary-gradient" title="Open AI Prompt Generator for Winter & Christmas">
+          <span class="btn-icon">❄️</span> AI Prompts (Winter/Xmas)
         </button>
-        <label class="btn btn-primary file-upload-label" title="Upload your own generated image">
-          <span class="btn-icon">📁</span> Upload Image
-          <input type="file" id="fileUploadInput" accept="image/*" style="display:none;">
+        <button id="btnLoadSample" class="btn btn-secondary" title="Load sample park image">
+          <span class="btn-icon">🌳</span> Sample
+        </button>
+        <label class="btn btn-primary file-upload-label" title="Upload one or multiple images">
+          <span class="btn-icon">📁</span> Upload Image(s)
+          <input type="file" id="fileUploadInput" multiple accept="image/*" style="display:none;">
         </label>
         <button id="btnUndo" class="btn btn-warning-soft" title="حذف آخر تعديل فقط (Undo Last Modification)" disabled>
-          ↩️ تراجع عن آخر تعديل (Undo)
+          ↩️ تراجع (Undo)
         </button>
         <button id="btnReset" class="btn btn-danger-soft" title="مسح جميع التعديلات والبدء من جديد (Reset All)">
           🔄 مسح الكل (Reset)
@@ -242,14 +260,34 @@
             <button class="tab-btn" data-view="solution">🎯 Solution (Circled)</button>
           </div>
 
-          <!-- Zoom & Pan Controls -->
+          <!-- Smart Queue & Workflow Navigation -->
+          <div class="workflow-nav-group">
+            <button class="workflow-nav-btn" id="btnPrevPuzzle" title="اللغز السابق (Previous Puzzle)">
+              ⏮️ السابق
+            </button>
+            <button class="workflow-nav-btn btn-nav-primary" id="btnNextPendingPuzzle" title="الانتقال التلقائي للغز الموالي غير المكتمل (Next Pending Image)">
+              ⏭️ الموالي غير المكتمل
+            </button>
+            <label class="auto-advance-label" title="الانتقال التلقائي للصورة الموالية فور إتمام 5 فروقات">
+              <input type="checkbox" id="chkAutoAdvance" checked>
+              <span class="auto-advance-switch"></span>
+              <span class="auto-advance-text">⚡ Auto-Next (5/5)</span>
+            </label>
+          </div>
+
+          <!-- Zoom & Fit Controls -->
           <div class="zoom-controls">
             <button class="zoom-btn" id="btnZoomOut" title="تصغير (Zoom Out)">➖</button>
             <span class="zoom-level" id="zoomLevelDisplay">100%</span>
             <button class="zoom-btn" id="btnZoomIn" title="تكبير (Zoom In)">➕</button>
             <button class="zoom-btn" id="btnZoomReset" title="إعادة الحجم الأصلي (Fit)">Fit</button>
-            <button class="zoom-btn" id="btnPanToggle" title="تحريك الصورة (Pan / Drag)">✋ Pan</button>
           </div>
+
+          <!-- Prominent Click vs Pan/Move Mode Toggle -->
+          <button type="button" class="mode-pan-toggle-btn" id="btnPanToggle" title="التبديل بين وضع النقر للتعديل (Click) ووضع تحريك الصورة بالماوس (Move / Pan)">
+            <span class="mode-pan-icon">✋</span>
+            <span id="panBtnText">تحريك الصفحة (Pan)</span>
+          </button>
 
           <div class="zoom-tools">
             <span class="status-indicator" id="statusIndicator">Ready</span>
@@ -302,13 +340,54 @@
             </div>
           </div>
         </div>
+
+        <!-- Book Pages Filmstrip (Bottom Bar) -->
+        <div class="book-pages-strip" id="bookPagesStrip">
+          <div class="pages-strip-header">
+            <div class="strip-title-group">
+              <span class="strip-icon">📚</span>
+              <div class="strip-title-stack">
+                <span class="strip-title">Production Queue (<span id="stripCount">1</span>)</span>
+                <span class="strip-subtitle">كليكي على أي لغز للتعديل أو زيادة الفروقات</span>
+              </div>
+
+              <!-- Smart Queue Filter Tabs -->
+              <div class="strip-filter-tabs">
+                <button type="button" class="strip-filter-btn active" data-filter="queue" id="tabFilterQueue" title="الصور قيد العمل اللي باقين ما كملوش 5 تعديلات">
+                  ⏳ قيد التعديل (<span id="filterQueueCount">1</span>)
+                </button>
+                <button type="button" class="strip-filter-btn" data-filter="completed" id="tabFilterCompleted" title="الصور المكتملة اللي وصلو للهدف ومحفوظة للكتاب">
+                  ✅ المكتملة للـ PDF (<span id="filterCompletedCount">0</span>)
+                </button>
+                <button type="button" class="strip-filter-btn" data-filter="all" id="tabFilterAll" title="عرض جميع الصور فـ الكتاب">
+                  📁 الكل (<span id="filterAllCount">1</span>)
+                </button>
+              </div>
+            </div>
+            <div class="strip-actions">
+              <label class="btn btn-sm btn-primary-soft strip-btn" title="Upload multiple images at once to create multiple puzzle pages">
+                📁 رفع عدة صور (Batch Upload)
+                <input type="file" id="stripBatchInput" multiple accept="image/*" style="display:none;">
+              </label>
+              <button class="btn btn-sm strip-btn" id="stripClearAllBtn" style="background: #dc2626; color: #ffffff; font-weight: 700; border: none; box-shadow: 0 2px 6px rgba(220, 38, 38, 0.4); display: inline-flex; align-items: center; gap: 4px;" title="مسح جميع الصور والبدء من جديد بضغطة واحدة">
+                🗑️ مسح الكل (1-Click Clear)
+              </button>
+              <button class="btn btn-sm btn-ghost strip-btn" id="stripAddSampleBtn" title="Add another sample park puzzle">
+                ➕ إضافة صفحة تجريبية
+              </button>
+            </div>
+          </div>
+          <div class="pages-track" id="pagesTrack">
+            <!-- Dynamic puzzle cards -->
+          </div>
+        </div>
       </section>
 
       <!-- Right Panel: Amazon KDP Export -->
       <aside class="sidebar-right">
         <div class="panel-section">
-          <h2 class="section-title">3. Amazon KDP Export</h2>
-          <p class="section-desc">صفحات احترافية بدقة 300 DPI جاهزة للرفع مباشرة على أمازون</p>
+          <h2 class="section-title">3. Amazon KDP Book Studio</h2>
+          <p class="section-desc">صفحات احترافية 300 DPI منظمة بكتاب كامل جاهز للنشر على أمازون</p>
 
           <div class="form-group">
             <label>Book Trim Size (قياس الكتاب):</label>
@@ -319,36 +398,99 @@
           </div>
 
           <div class="form-group">
-            <label>Page Title (عنوان اللغز):</label>
-            <input type="text" id="kdpTitle" class="text-input" value="SPOT THE 5 DIFFERENCES!">
+            <label>Book Title (عنوان الكتاب):</label>
+            <input type="text" id="kdpTitle" class="text-input" value="SPOT THE DIFFERENCES!">
           </div>
 
           <div class="form-group">
-            <label>Page Number (رقم الصفحة):</label>
-            <input type="number" id="kdpPageNum" class="text-input" value="1" min="1" max="200">
+            <label>Differences Target (عدد الفروقات المطلوب لكل لغز):</label>
+            <select id="kdpTargetDiffs" class="select-input">
+              <option value="5" selected>5 فروقات (المعيار الموصى به لـ KDP) ⭐</option>
+              <option value="4">4 فروقات (للأطفال 4-6 سنوات)</option>
+              <option value="6">6 فروقات (مستوى متوسط)</option>
+              <option value="7">7 فروقات (تحدي ذكاء)</option>
+              <option value="3">3 فروقات (مستوى سهل)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Solutions Format (توزيع الحلول):</label>
+            <select id="kdpSolutionsPerPage" class="select-input">
+              <option value="4" selected>4 حلول فـ صفحة وحدة (2x2 Grid) ⭐</option>
+              <option value="1">حل واحد فـ كل صفحة (Full Page)</option>
+            </select>
+          </div>
+
+          <!-- Front & Back Matter Toggles -->
+          <div class="matter-toggles-card">
+            <label class="option-label" style="margin-bottom: 6px;">صفحات الكتاب الأساسية (KDP Matter):</label>
+            <label class="checkbox-row">
+              <input type="checkbox" id="chkBelongsTo" checked>
+              <span>⭐ صفحة البداية (This Book Belongs To)</span>
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" id="chkInstructions" checked>
+              <span>🔍 صفحة الإرشادات (How To Play Rules)</span>
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" id="chkCertificate" checked>
+              <span>🏆 شهادة الإتمام (Detective Award Certificate)</span>
+            </label>
+            <div class="divider" style="margin: 8px 0;"></div>
+            <label class="checkbox-row" style="background: rgba(16, 185, 129, 0.12); padding: 6px 8px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.3);">
+              <input type="checkbox" id="chkOnlyCompletedPdf" checked>
+              <span style="color: #6EE7B7; font-weight: 600;">✅ تضمين المكتملة فقط فـ الـ PDF (KDP Safe)</span>
+            </label>
+          </div>
+
+          <!-- Book Summary Card -->
+          <div class="book-summary-box">
+            <div class="summary-stat">
+              <span class="stat-label">Total Uploaded:</span>
+              <span class="stat-val" id="summaryTotalPuzzles">1</span>
+            </div>
+            <div class="summary-stat">
+              <span class="stat-label">Ready for PDF:</span>
+              <span class="stat-val" id="summaryCompletedPuzzles" style="color: #10B981; font-weight: 700;">0</span>
+            </div>
+            <div class="summary-stat">
+              <span class="stat-label">Pending Work:</span>
+              <span class="stat-val" id="summaryPendingPuzzles" style="color: #F59E0B;">1</span>
+            </div>
+            <div class="summary-stat">
+              <span class="stat-label">Total Differences:</span>
+              <span class="stat-val" id="summaryTotalDiffs">0</span>
+            </div>
+            <div class="summary-stat highlight">
+              <span class="stat-label">Estimated PDF Pages:</span>
+              <span class="stat-val" id="summaryEstPages">6 Pages</span>
+            </div>
           </div>
 
           <div class="divider"></div>
 
           <div class="export-buttons">
+            <button id="btnExportFullPdf" class="btn btn-success-gradient btn-full" style="padding: 14px;">
+              📕 تحميل الكتاب كامل (PDF 300 DPI)
+            </button>
             <button id="btnExportPuzzlePng" class="btn btn-secondary btn-full">
-              🖼️ تحميل صفحة اللغز (PNG 300 DPI)
+              🖼️ تحميل اللغز الحالي فقط (PNG 300 DPI)
             </button>
             <button id="btnExportSolutionPng" class="btn btn-secondary btn-full">
-              🎯 تحميل صفحة الحل (PNG 300 DPI)
+              🎯 تحميل حل اللغز الحالي فقط (PNG 300 DPI)
             </button>
-            <button id="btnExportFullPdf" class="btn btn-success-gradient btn-full">
-              📕 تحميل الكتاب كامل (PDF 300 DPI)
+            <button id="btnSideClearAll" class="btn btn-full" style="margin-top: 8px; background: #dc2626; color: #ffffff; font-weight: 700; border: none; box-shadow: 0 2px 6px rgba(220, 38, 38, 0.4); display: flex; align-items: center; justify-content: center; gap: 6px;" title="مسح جميع الصور والبدء من جديد بضغطة واحدة">
+              🗑️ مسح جميع الصور (1-Click Clear All)
             </button>
           </div>
 
           <div class="kdp-spec-box">
             <h4>KDP Compliance:</h4>
             <ul>
-              <li>✅ 300 DPI High-Resolution</li>
-              <li>✅ Safe Print Margins Included</li>
-              <li>✅ Checklist circles for kids included</li>
-              <li>✅ Automatic Solution Key included</li>
+              <li>✅ 300 DPI High-Resolution Print Ready</li>
+              <li>✅ Safe Print Margins & Bleed Compliance</li>
+              <li>✅ 4 Solutions per page 2x2 Grid</li>
+              <li>✅ Belongs-To, Rules & Certificate Included</li>
             </ul>
           </div>
         </div>
@@ -356,6 +498,113 @@
     </main>
   </div>
 
-  <script src="/static/js/app.js"></script>
+  <!-- AI Prompt Generator Modal -->
+  <div class="modal-overlay hidden" id="promptModal">
+    <div class="prompt-modal-card">
+      <div class="prompt-modal-header">
+        <div class="prompt-modal-title-group">
+          <div class="modal-badge-icon">❄️</div>
+          <div>
+            <h2>KDP AI Prompt Generator</h2>
+            <p>توليد برومتات ذكية مخصصة لـ Midjourney و DALL-E و Flux متوافقة مع لعبة Spot The Difference</p>
+          </div>
+        </div>
+        <button class="modal-close-btn" id="btnClosePromptModal" title="Close Modal">✕</button>
+      </div>
+
+      <!-- Generator Settings Bar -->
+      <div class="prompt-settings-grid">
+        <div class="prompt-form-col">
+          <label class="prompt-label">Niche / Theme (المجال):</label>
+          <select id="promptNicheSelect" class="select-input">
+            <option value="winter_christmas" selected>❄️ Winter & Christmas for Kids (⭐ الأكثر مبيعاً)</option>
+            <option value="cute_animals">🐾 Cute Animals & Pets</option>
+            <option value="fairy_tale">🏰 Fairy Tale & Magic Castles</option>
+            <option value="space_adventure">🚀 Space Exploration & Animals</option>
+          </select>
+        </div>
+
+        <div class="prompt-form-col">
+          <label class="prompt-label">Number of Prompts (العدد):</label>
+          <div class="count-preset-group">
+            <button type="button" class="count-preset-btn" data-count="10">10</button>
+            <button type="button" class="count-preset-btn" data-count="25">25</button>
+            <button type="button" class="count-preset-btn active" data-count="50">50</button>
+            <button type="button" class="count-preset-btn" data-count="100">100</button>
+            <input type="number" id="promptCustomCount" class="text-input count-input" value="50" min="1" max="200" title="Custom count">
+          </div>
+        </div>
+
+        <div class="prompt-form-col">
+          <label class="prompt-label">AI Tool (الأداة):</label>
+          <select id="promptModelSelect" class="select-input">
+            <option value="midjourney" selected>Midjourney v6.1 (--ar 1:1 --v 6.1)</option>
+            <option value="dalle">DALL-E 3 (ChatGPT Plus / API)</option>
+            <option value="flux">Flux.1 (Replicate / Fal.ai)</option>
+            <option value="universal">Universal (Leonardo / SDXL / Bing)</option>
+          </select>
+        </div>
+
+        <div class="prompt-form-col">
+          <label class="prompt-label">Aspect Ratio (المقاس):</label>
+          <select id="promptArSelect" class="select-input">
+            <option value="1:1" selected>Square 1:1 (KDP 8.5" x 8.5")</option>
+            <option value="3:4">Portrait 3:4 (KDP 8.5" x 11")</option>
+          </select>
+        </div>
+
+        <div class="prompt-form-col action-col">
+          <label class="prompt-label">&nbsp;</label>
+          <button id="btnGeneratePrompts" class="btn btn-success-gradient btn-full">
+            ✨ توليد 50 برومت فـ دقة وحدة
+          </button>
+        </div>
+      </div>
+
+      <!-- Action & Filter Bar -->
+      <div class="prompt-action-bar">
+        <div class="prompt-stats-badge">
+          <span id="promptResultsCount">0</span> برومت جاهز
+        </div>
+
+        <div class="prompt-search-box">
+          <input type="text" id="promptSearchInput" class="text-input" placeholder="🔍 ابحث في المشاهد أو الشخصيات...">
+        </div>
+
+        <div class="prompt-export-buttons">
+          <button id="btnCopyAllPrompts" class="btn btn-primary-soft btn-sm" title="Copy all prompts to clipboard">
+            📋 نسخ الكل (Copy All)
+          </button>
+          <button id="btnDownloadPromptsTxt" class="btn btn-secondary btn-sm" title="Download all as TXT">
+            📄 تحميل TXT
+          </button>
+          <button id="btnDownloadPromptsCsv" class="btn btn-secondary btn-sm" title="Download all as CSV Excel">
+            📊 تحميل CSV
+          </button>
+        </div>
+      </div>
+
+      <!-- Prompts Cards Scroll Area -->
+      <div class="prompt-cards-container" id="promptCardsContainer">
+        <div class="prompt-empty-state">
+          <span>❄️</span>
+          <h3>اختر الإعدادات واضغط على "توليد 50 برومت فـ دقة وحدة"</h3>
+          <p>غاتحصل على 50 مشهد شتوي متناسق للأطفال، مع اقتراحات للفروقات اللي تقدر ديرها فكل صورة (Color Swap, Erase, Flip, Clone)!</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating Toast Celebration & Auto-Next Indicator -->
+  <div class="completion-toast hidden" id="completionToast">
+    <div class="toast-icon">🎉</div>
+    <div class="toast-body">
+      <div class="toast-title" id="toastTitle">لغز مكتمل بنجاح (5/5)!</div>
+      <div class="toast-desc" id="toastDesc">تم حفظ اللغز ونقله إلى "المكتملة للـ PDF". جاري الانتقال للصورة الموالية...</div>
+    </div>
+    <button type="button" class="toast-btn-stay" id="btnStayCurrent">البقاء هنا</button>
+  </div>
+
+  <script src="/static/js/app.js?v=3.1"></script>
 </body>
 </html>

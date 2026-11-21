@@ -32,9 +32,21 @@
   - Real-time solution generation with numbered high-visibility coral badges.
   - List of differences with exact coordinates and labels.
 
-- **📕 Amazon KDP Print-Ready 300 DPI Export:**
+- **❄️ KDP AI Prompt Generator (Winter & Christmas for Kids):**
+  - Built-in prompt engineering engine tailored 100% for Spot the Difference puzzle logic.
+  - Generates 10, 25, 50, or 100 unique, kid-friendly winter/holiday prompts in one click.
+  - Multi-engine formatting: **Midjourney v6.1**, **DALL-E 3**, **Flux.1**, and **Universal AI**.
+  - Engineered for clean 2D outlines, flat saturated color separation, and multiple distinct isolated items.
+  - **Automated Suggested Differences:** Every prompt comes with pre-calculated differences (Color Swap, Erase, Flip, Clone) so you know exactly what to modify.
+  - 1-click Copy All to clipboard, plus one-click TXT & CSV batch export.
+
+- **📕 Amazon KDP Print-Ready 300 DPI Multi-Page Book Engine:**
   - Pre-calibrated trim sizes: **8.5" x 8.5" (Square)** & **8.5" x 11" (Portrait)**.
   - Safe margins, headers, subtitles, and interactive checklist circles for kids.
+  - **Front Matter Pages:** "This Book Belongs To" intro page + "How to Play" instructions page.
+  - **4-in-1 Solutions Key Grid:** 4 solutions per page (2x2 grid) saving book page count for KDP.
+  - **Detective Award Certificate:** Completion certificate at the end of the book.
+  - **Batch Image Upload & Multi-Puzzle Filmstrip:** Manage 10, 20, 50+ puzzle pages in one session with auto-save.
   - Export single puzzle page (PNG 300 DPI), solution page (PNG 300 DPI), or complete multi-page book (PDF 300 DPI).
 
 ---
